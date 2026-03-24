@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RATAN Control Panel</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0a0e17; --surface: #111827; --surface2: #1f2937;
+            --border: #374151; --text: #e5e7eb; --text-dim: #9ca3af;
+            --accent: #3b82f6; --green: #10b981; --yellow: #f59e0b;
+            --red: #ef4444; --purple: #8b5cf6;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+        .app { display: grid; grid-template-columns: 280px 1fr; grid-template-rows: 60px 1fr; height: 100vh; }
+
+        /* Header */
+        .header { grid-column: 1 / -1; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
+        .header h1 { font-size: 18px; font-weight: 600; }
+        .header h1 span { color: var(--accent); }
+        .status-badge { padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 500; }
+        .status-badge.ok { background: #064e3b; color: var(--green); }
+        .status-badge.err { background: #7f1d1d; color: var(--red); }
+        .header-right { display: flex; align-items: center; gap: 16px; }
+        .config-version { color: var(--text-dim); font-size: 13px; }
+        #vps-url-input { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; width: 260px; font-size: 13px; }
+
+        /* Sidebar */
+        .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; }
+        .sidebar-section { padding: 8px 16px; font-size: 11px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.5px; margin-top: 8px; }
+        .sidebar a { display: block; padding: 8px 16px; color: var(--text-dim); text-decoration: none; font-size: 14px; transition: all 0.15s; }
+        .sidebar a:hover, .sidebar a.active { color: var(--text); background: var(--surface2); }
+        .sidebar a.active { border-left: 2px solid var(--accent); }
+
+        /* Main */
+        .main { padding: 24px; overflow-y: auto; }
+        .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+        .panel h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .panel h2 .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .panel h2 .dot.green { background: var(--green); }
+        .panel h2 .dot.yellow { background: var(--yellow); }
+        .panel h2 .dot.red { background: var(--red); }
+
+        /* Path cards */
+        .paths-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+        .path-card { background: var(--surface2); border-radius: 8px; padding: 16px; }
+        .path-card h3 { font-size: 14px; margin-bottom: 12px; display: flex; justify-content: space-between; }
+        .path-card .state { font-size: 12px; padding: 2px 8px; border-radius: 4px; }
+        .state.active { background: #064e3b; color: var(--green); }
+        .state.degraded { background: #78350f; color: var(--yellow); }
+        .state.dead, .state.zombie { background: #7f1d1d; color: var(--red); }
+        .state.recovering { background: #1e1b4b; color: var(--purple); }
+        .metric-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+        .metric-row .label { color: var(--text-dim); }
+        .metric-row .value { font-weight: 500; font-variant-numeric: tabular-nums; }
+        .score-bar { height: 6px; background: var(--surface); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+        .score-bar .fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+
+        /* Controls */
+        .control-group { margin-bottom: 20px; }
+        .control-group label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
+        .control-group .desc { font-size: 11px; color: var(--text-dim); margin-top: 4px; opacity: 0.7; }
+        .slider-row { display: flex; align-items: center; gap: 12px; }
+        .slider-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+        .slider-row .val { min-width: 60px; text-align: right; font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
+        select { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 14px; width: 100%; }
+        button { background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: opacity 0.15s; }
+        button:hover { opacity: 0.85; }
+        button.secondary { background: var(--surface2); border: 1px solid var(--border); }
+        button.danger { background: var(--red); }
+
+        /* Metrics chart placeholder */
+        .chart-area { height: 200px; background: var(--surface2); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--text-dim); position: relative; overflow: hidden; }
+        .sparkline { position: absolute; bottom: 0; left: 0; right: 0; height: 100%; }
+        .sparkline canvas { width: 100%; height: 100%; }
+
+        /* Aggregation summary */
+        .agg-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .agg-stat { text-align: center; padding: 12px; background: var(--surface2); border-radius: 8px; }
+        .agg-stat .num { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .agg-stat .unit { font-size: 12px; color: var(--text-dim); }
+        .agg-stat .label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+        /* Config history */
+        .history-list { max-height: 300px; overflow-y: auto; }
+        .history-item { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .history-item .time { color: var(--text-dim); min-width: 80px; }
+        .history-item .path { color: var(--accent); }
+        .history-item .change { color: var(--text-dim); }
+        .history-item .change .old { color: var(--red); text-decoration: line-through; }
+        .history-item .change .new { color: var(--green); }
+
+        /* Responsive */
+        @media (max-width: 768px) { .app { grid-template-columns: 1fr; } .sidebar { display: none; } .agg-grid { grid-template-columns: repeat(2, 1fr); } }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <h1><span>RATAN</span> Control Panel</h1>
+            <div class="header-right">
+                <input id="vps-url-input" type="text" placeholder="VPS API URL (e.g., http://89.167.91.132:8080)" />
+                <span class="config-version" id="config-version">v0</span>
+                <span class="status-badge" id="status-badge">Disconnected</span>
+            </div>
+        </header>
+
+        <nav class="sidebar">
+            <div class="sidebar-section">Live</div>
+            <a href="#" class="active" data-section="overview">Overview</a>
+            <a href="#" data-section="paths">Path Health</a>
+            <a href="#" data-section="scheduling">Scheduling</a>
+            <div class="sidebar-section">Tuning</div>
+            <a href="#" data-section="health-vars">Health Variables</a>
+            <a href="#" data-section="mptcp-vars">MPTCP Variables</a>
+            <a href="#" data-section="failover-vars">Failover Variables</a>
+            <div class="sidebar-section">Operations</div>
+            <a href="#" data-section="tests">A/B Testing</a>
+            <a href="#" data-section="history">Config History</a>
+            <a href="#" data-section="bridge">Cowork Bridge</a>
+        </nav>
+
+        <main class="main" id="main-content">
+            <!-- Content injected by JS -->
+        </main>
+    </div>
+
+    <script>
+    const state = {
+        apiUrl: '',
+        connected: false,
+        config: {},
+        configVersion: 0,
+        paths: {},
+        directives: {},
+        aggMetrics: {},
+        history: [],
+        currentSection: 'overview',
+        metricsHistory: { starlink: [], cellular: [] },
+    };
+
+    async function api(path, opts = {}) {
+        if (!state.apiUrl) return null;
+        try {
+            const url = `${state.apiUrl}${path}`;
+            const res = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', ...opts.headers } });
+            if (!res.ok) throw new Error(`${res.status}`);
+            return await res.json();
+        } catch (e) { console.error(`API error: ${path}`, e); return null; }
+    }
+
+    async function apiPut(path, body) { return api(path, { method: 'PUT', body: JSON.stringify(body) }); }
+
+    async function fetchAll() {
+        const [health, config, directives, metrics, hist] = await Promise.all([
+            api('/health'), api('/config'), api('/scheduling/directives'), api('/scheduling/metrics'), api('/config/history?limit=50'),
+        ]);
+        if (health) { state.connected = true; state.paths = health.paths || {}; state.configVersion = health.config_version; } else { state.connected = false; }
+        if (config) { state.config = config.value || {}; state.configVersion = config.version; }
+        if (directives) state.directives = directives;
+        if (metrics) state.aggMetrics = metrics;
+        if (hist) state.history = hist.history || [];
+        for (const [pid, h] of Object.entries(state.paths)) {
+            if (!state.metricsHistory[pid]) state.metricsHistory[pid] = [];
+            state.metricsHistory[pid].push({ t: Date.now(), score: h.score, rtt: h.rtt_avg_ms });
+            if (state.metricsHistory[pid].length > 120) state.metricsHistory[pid].shift();
+        }
+        updateUI();
+    }
+
+    function updateUI() {
+        const badge = document.getElementById('status-badge');
+        badge.textContent = state.connected ? 'Connected' : 'Disconnected';
+        badge.className = `status-badge ${state.connected ? 'ok' : 'err'}`;
+        document.getElementById('config-version').textContent = `v${state.configVersion}`;
+        const main = document.getElementById('main-content');
+        switch (state.currentSection) {
+            case 'overview': main.innerHTML = renderOverview(); break;
+            case 'paths': main.innerHTML = renderPaths(); break;
+            case 'scheduling': main.innerHTML = renderScheduling(); break;
+            case 'health-vars': main.innerHTML = renderHealthVars(); break;
+            case 'mptcp-vars': main.innerHTML = renderMptcpVars(); break;
+            case 'failover-vars': main.innerHTML = renderFailoverVars(); break;
+            case 'history': main.innerHTML = renderHistory(); break;
+            case 'bridge': main.innerHTML = renderBridge(); break;
+            case 'tests': main.innerHTML = renderTests(); break;
+        }
+    }
+
+    function scoreColor(score) { if (score > 0.8) return 'var(--green)'; if (score > 0.5) return 'var(--yellow)'; return 'var(--red)'; }
+
+    function renderOverview() {
+        const agg = state.aggMetrics; const pathEntries = Object.entries(state.paths);
+        return `<div class="panel"><h2>Aggregation Performance</h2><div class="agg-grid">
+            <div class="agg-stat"><div class="num" style="color:var(--accent)">${(agg.combined_throughput_mbps||0).toFixed(1)}</div><div class="unit">Mbps</div><div class="label">Combined Throughput</div></div>
+            <div class="agg-stat"><div class="num" style="color:${(agg.effective_rtt_ms||0)<100?'var(--green)':'var(--yellow)'}">${(agg.effective_rtt_ms||0).toFixed(1)}</div><div class="unit">ms</div><div class="label">Effective RTT</div></div>
+            <div class="agg-stat"><div class="num" style="color:var(--green)">${agg.active_paths||0}/${agg.total_paths||0}</div><div class="unit">paths</div><div class="label">Active Paths</div></div>
+            <div class="agg-stat"><div class="num">${agg.failover_count||0}</div><div class="unit">events</div><div class="label">Failovers</div></div>
+        </div></div>
+        <div class="paths-grid">${pathEntries.map(([pid,h])=>renderPathCard(pid,h)).join('')}</div>
+        <div class="panel" style="margin-top:20px"><h2>Scheduling Directives</h2><div class="paths-grid">
+            ${Object.entries(state.directives).map(([pid,d])=>`<div class="path-card"><h3>${pid} <span style="color:${d.active?'var(--green)':'var(--red)'}; font-size:12px">${d.active?'ACTIVE':'INACTIVE'}</span></h3>
+            <div class="metric-row"><span class="label">Weight</span><span class="value">${(d.weight*100).toFixed(1)}%</span></div>
+            <div class="metric-row"><span class="label">Reinjection</span><span class="value">${d.reinjection?'ON':'OFF'}</span></div>
+            <div class="score-bar"><div class="fill" style="width:${d.weight*100}%; background:var(--accent)"></div></div></div>`).join('')}
+        </div></div>`;
+    }
+
+    function renderPathCard(pid, h) {
+        return `<div class="panel path-card"><h3>${pid} <span class="state ${h.state}">${h.state.toUpperCase()}</span></h3>
+            <div class="metric-row"><span class="label">Health Score</span><span class="value" style="color:${scoreColor(h.score)}">${(h.score*100).toFixed(1)}%</span></div>
+            <div class="metric-row"><span class="label">RTT (avg)</span><span class="value">${h.rtt_avg_ms.toFixed(1)} ms</span></div>
+            <div class="metric-row"><span class="label">RTT (p95)</span><span class="value">${h.rtt_p95_ms.toFixed(1)} ms</span></div>
+            <div class="metric-row"><span class="label">Packet Loss</span><span class="value">${h.loss_pct.toFixed(2)}%</span></div>
+            <div class="metric-row"><span class="label">Jitter</span><span class="value">${h.jitter_ms.toFixed(1)} ms</span></div>
+            <div class="metric-row"><span class="label">Probes</span><span class="value">${h.probe_count}</span></div>
+            <div class="score-bar"><div class="fill" style="width:${h.score*100}%; background:${scoreColor(h.score)}"></div></div></div>`;
+    }
+
+    function renderPaths() {
+        const entries = Object.entries(state.paths);
+        if (!entries.length) return '<div class="panel"><h2>No paths registered</h2><p style="color:var(--text-dim)">Connect an edge client to see path health data.</p></div>';
+        return `<div class="paths-grid">${entries.map(([pid,h])=>renderPathCard(pid,h)).join('')}</div>`;
+    }
+
+    function renderScheduling() {
+        const cfg = state.config.mptcp_scheduling || {};
+        return `<div class="panel"><h2>Current Scheduler: ${(cfg.scheduler_mode||'weighted').toUpperCase()}</h2><div class="paths-grid">
+            ${Object.entries(state.directives).map(([pid,d])=>`<div class="path-card"><h3>${pid}</h3>
+            <div class="metric-row"><span class="label">Weight</span><span class="value">${(d.weight*100).toFixed(1)}%</span></div>
+            <div class="metric-row"><span class="label">Active</span><span class="value" style="color:${d.active?'var(--green)':'var(--red)'}">${d.active}</span></div>
+            <div class="metric-row"><span class="label">Reinjection</span><span class="value">${d.reinjection}</span></div></div>`).join('')}
+        </div><div style="margin-top:16px"><button onclick="forceRebalance()">Force Rebalance</button></div></div>`;
+    }
+
+    function renderHealthVars() {
+        const cfg = state.config.path_health || {}; const w = cfg.health_score_weights || {};
+        return `<div class="panel"><h2>Path Health Variables</h2>
+            ${slider('probe_interval','Probe Interval',cfg.probe_interval_ms||50,10,2000,'ms','How often we ping each path.','path_health.probe_interval_ms')}
+            ${slider('rtt_threshold','RTT Threshold',cfg.rtt_threshold_ms||150,10,1000,'ms','RTT above this degrades health score.','path_health.rtt_threshold_ms')}
+            ${slider('loss_threshold','Loss Threshold',cfg.loss_threshold_pct||5,0.5,50,'%','Packet loss % above which path is penalized.','path_health.loss_threshold_pct',0.5)}
+            ${slider('jitter_tolerance','Jitter Tolerance',cfg.jitter_tolerance_ms||30,5,200,'ms','Jitter above this hurts score.','path_health.jitter_tolerance_ms')}
+            ${slider('zombie_timeout','Zombie Timeout',cfg.zombie_timeout_ms||2000,100,30000,'ms','Time without probes before zombie.','path_health.zombie_timeout_ms',100)}
+            ${slider('loss_window','Loss Window Size',cfg.loss_window_size||20,5,100,'probes','Recent probes to calculate loss.','path_health.loss_window_size')}
+            <h2 style="margin-top:24px">Health Score Weights</h2>
+            <p style="color:var(--text-dim);font-size:13px;margin-bottom:16px">Must sum to 1.0.</p>
+            ${slider('w_rtt','RTT Weight',w.rtt||0.4,0,1,'','','',0.05)}
+            ${slider('w_loss','Loss Weight',w.loss||0.35,0,1,'','','',0.05)}
+            ${slider('w_jitter','Jitter Weight',w.jitter||0.25,0,1,'','','',0.05)}
+            <button onclick="applyHealthWeights()">Apply Weights</button></div>`;
+    }
+
+    function renderMptcpVars() {
+        const cfg = state.config.mptcp_scheduling || {}; const w = cfg.subflow_weights || {};
+        return `<div class="panel"><h2>MPTCP Scheduling Variables</h2>
+            <div class="control-group"><label>Scheduler Mode</label>
+            <select id="scheduler-mode" onchange="setSchedulerMode(this.value)">
+                ${['weighted','min_rtt','redundant','adaptive'].map(m=>`<option value="${m}" ${cfg.scheduler_mode===m?'selected':''}>${m.toUpperCase()}</option>`).join('')}
+            </select><div class="desc">weighted=static split, min_rtt=best path, redundant=all paths, adaptive=learns</div></div>
+            <h3 style="margin:16px 0 12px;font-size:14px">Subflow Weights</h3>
+            ${slider('w_starlink','Starlink',w.starlink||0.7,0,1,'','','',0.05)}
+            ${slider('w_cellular','Cellular',w.cellular||0.3,0,1,'','','',0.05)}
+            <button onclick="applySubflowWeights()">Apply Weights</button>
+            <hr style="border-color:var(--border);margin:20px 0">
+            ${slider('reinjection','Reinjection Threshold',cfg.reinjection_threshold_ms||200,10,2000,'ms','RTT exceeds this = resend on other path.','mptcp_scheduling.reinjection_threshold_ms')}
+            ${slider('promotion','Path Promotion Threshold',cfg.path_promotion_threshold||0.8,0,1,'','Score for recovery promotion.','mptcp_scheduling.path_promotion_threshold',0.05)}
+            ${slider('demotion','Path Demotion Threshold',cfg.path_demotion_threshold||0.3,0,1,'','Score below which path demoted.','mptcp_scheduling.path_demotion_threshold',0.05)}
+            ${slider('bw_target','Bandwidth Target',cfg.bandwidth_target_mbps||100,1,1000,'Mbps','Target combined throughput.','mptcp_scheduling.bandwidth_target_mbps')}</div>`;
+    }
+
+    function renderFailoverVars() {
+        const cfg = state.config.failover || {};
+        return `<div class="panel"><h2>Failover Variables</h2>
+            ${slider('fo_trigger','Failover Trigger',cfg.trigger_threshold||0.2,0,1,'','Score below which we stop traffic.','failover.trigger_threshold',0.05)}
+            ${slider('fo_recovery','Recovery Probe Interval',cfg.recovery_probe_interval_ms||500,100,30000,'ms','How often we test dead paths.','failover.recovery_probe_interval_ms',100)}
+            ${slider('fo_hysteresis','Switchback Hysteresis',cfg.switchback_hysteresis_ms||3000,0,30000,'ms','How long recovered path must stay healthy.','failover.switchback_hysteresis_ms',100)}
+            <div class="control-group"><label>Session Preservation</label>
+            <select onchange="setConfig('failover.session_preservation',this.value)">
+                <option value="migrate" ${cfg.session_preservation==='migrate'?'selected':''}>Migrate</option>
+                <option value="restart" ${cfg.session_preservation==='restart'?'selected':''}>Restart</option>
+            </select></div>
+            ${slider('fo_max_time','Max Failover Time',cfg.max_failover_time_ms||200,50,5000,'ms','THE KEY METRIC: Target <200ms.','failover.max_failover_time_ms')}</div>`;
+    }
+
+    function renderHistory() {
+        return `<div class="panel"><h2>Config Change History</h2><div class="history-list">
+            ${state.history.length===0?'<p style="color:var(--text-dim)">No changes yet.</p>':
+            state.history.slice().reverse().map(h=>`<div class="history-item">
+                <span class="time">${new Date(h.timestamp*1000).toLocaleTimeString()}</span>
+                <span class="path">${h.path}</span>
+                <span class="change"><span class="old">${JSON.stringify(h.old_value)}</span> &rarr; <span class="new">${JSON.stringify(h.new_value)}</span></span>
+            </div>`).join('')}</div></div>`;
+    }
+
+    function renderBridge() {
+        return `<div class="panel"><h2>Cowork Bridge</h2><p style="color:var(--text-dim);margin-bottom:16px">Push goals, pull logs, monitor VPS.</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div>
+                <label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:6px">Goal File</label>
+                <textarea id="goal-input" rows="6" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:6px;font-family:monospace;font-size:13px;resize:vertical" placeholder="Write your goal here..."></textarea>
+                <button onclick="pushGoal()" style="margin-top:8px">Push Goal</button>
+                <button class="secondary" onclick="fetchGoal()" style="margin-top:8px;margin-left:8px">Fetch Current</button>
+            </div><div>
+                <label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:6px">Engine Logs</label>
+                <pre id="logs-output" style="background:var(--surface2);border:1px solid var(--border);padding:12px;border-radius:6px;height:180px;overflow-y:auto;font-size:12px;color:var(--text-dim)">Click "Fetch Logs" to load...</pre>
+                <button class="secondary" onclick="fetchLogs()" style="margin-top:8px">Fetch Logs</button>
+                <button class="secondary" onclick="fetchLogs('bridge')" style="margin-top:8px;margin-left:8px">Bridge Logs</button>
+            </div></div><div style="margin-top:16px"><button class="danger" onclick="restartEngine()">Restart Engine</button></div></div>`;
+    }
+
+    function renderTests() {
+        return `<div class="panel"><h2>A/B Testing</h2><p style="color:var(--text-dim);margin-bottom:16px">Compare parameter configurations head-to-head.</p>
+            <div class="control-group"><label>Test Name</label><input id="test-name" type="text" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;width:100%" placeholder="e.g., starlink-70-vs-50" /></div>
+            <div class="control-group"><label>Duration (seconds)</label><input id="test-duration" type="number" value="300" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;width:100%" /></div>
+            <button onclick="alert('A/B test UI coming in Phase 2')">Create Test</button></div>`;
+    }
+
+    function slider(id, label, value, min, max, unit, desc, configPath, step) {
+        step = step || 1;
+        return `<div class="control-group"><label>${label}</label><div class="slider-row">
+            <input type="range" id="slider-${id}" min="${min}" max="${max}" step="${step}" value="${value}"
+                oninput="document.getElementById('val-${id}').textContent=this.value+'${unit}'"
+                ${configPath?`onchange="setConfig('${configPath}',parseFloat(this.value))"`:''}/>
+            <span class="val" id="val-${id}">${value}${unit}</span></div>${desc?`<div class="desc">${desc}</div>`:''}</div>`;
+    }
+
+    async function setConfig(path, value) { await apiPut('/config',{path,value,source:'dashboard'}); await fetchAll(); }
+    async function setSchedulerMode(mode) { await api(`/config/scheduling/mode?mode=${mode}`,{method:'PUT'}); await fetchAll(); }
+    async function applySubflowWeights() {
+        const sl=parseFloat(document.getElementById('slider-w_starlink').value), cell=parseFloat(document.getElementById('slider-w_cellular').value), total=sl+cell;
+        await api(`/config/scheduling/weights?starlink=${(sl/total).toFixed(2)}&cellular=${(cell/total).toFixed(2)}`,{method:'PUT'}); await fetchAll();
+    }
+    async function applyHealthWeights() {
+        const rtt=parseFloat(document.getElementById('slider-w_rtt').value), loss=parseFloat(document.getElementById('slider-w_loss').value), jitter=parseFloat(document.getElementById('slider-w_jitter').value), total=rtt+loss+jitter;
+        await api(`/config/path-health/weights?rtt=${(rtt/total).toFixed(2)}&loss=${(loss/total).toFixed(2)}&jitter=${(jitter/total).toFixed(2)}`,{method:'PUT'}); await fetchAll();
+    }
+    async function forceRebalance() { await api('/scheduling/rebalance',{method:'POST'}); await fetchAll(); }
+    async function pushGoal() { const content=document.getElementById('goal-input').value; await apiPut('/bridge/goal',{content}); }
+    async function fetchGoal() { const data=await api('/bridge/goal'); if(data) document.getElementById('goal-input').value=data.content; }
+    async function fetchLogs(source='engine') { const data=await api(`/bridge/logs?lines=50&source=${source}`); if(data) document.getElementById('logs-output').textContent=(data.lines||[]).join('\n'); }
+    async function restartEngine() { if(!confirm('Restart the RATAN engine on the VPS?')) return; await api('/bridge/restart-engine',{method:'POST'}); }
+
+    document.querySelectorAll('.sidebar a').forEach(a => {
+        a.addEventListener('click', e => { e.preventDefault(); document.querySelectorAll('.sidebar a').forEach(x=>x.classList.remove('active')); a.classList.add('active'); state.currentSection=a.dataset.section; updateUI(); });
+    });
+
+    const urlInput = document.getElementById('vps-url-input');
+    urlInput.value = state.apiUrl;
+    urlInput.addEventListener('change', () => { state.apiUrl=urlInput.value.replace(/\/$/,''); fetchAll(); });
+
+    setInterval(fetchAll, 2000);
+    if (state.apiUrl) fetchAll(); else updateUI();
+    </script>
+</body>
+</html>

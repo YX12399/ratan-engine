@@ -1,0 +1,54 @@
+{
+  "_meta": {
+    "version": 1,
+    "description": "RATAN Engine - Default Configuration",
+    "updated_at": null
+  },
+  "path_health": {
+    "probe_interval_ms": 50,
+    "probe_type": "udp",
+    "rtt_threshold_ms": 150,
+    "loss_window_size": 20,
+    "loss_threshold_pct": 5.0,
+    "jitter_tolerance_ms": 30,
+    "zombie_timeout_ms": 2000,
+    "health_score_weights": {
+      "rtt": 0.4,
+      "loss": 0.35,
+      "jitter": 0.25
+    },
+    "min_probes_for_score": 5
+  },
+  "mptcp_scheduling": {
+    "scheduler_mode": "weighted",
+    "subflow_weights": {
+      "starlink": 0.7,
+      "cellular": 0.3
+    },
+    "congestion_window_scale": 1.0,
+    "reinjection_threshold_ms": 200,
+    "path_promotion_threshold": 0.8,
+    "path_demotion_threshold": 0.3,
+    "bandwidth_target_mbps": 100,
+    "min_active_subflows": 1,
+    "max_subflows": 4
+  },
+  "failover": {
+    "trigger_threshold": 0.2,
+    "recovery_probe_interval_ms": 500,
+    "switchback_hysteresis_ms": 3000,
+    "session_preservation": "migrate",
+    "max_failover_time_ms": 200
+  },
+  "test_orchestration": {
+    "default_duration_sec": 300,
+    "metric_interval_ms": 1000,
+    "significance_threshold": 0.95,
+    "min_samples": 30
+  },
+  "monitoring": {
+    "metrics_flush_interval_ms": 5000,
+    "history_retention_hours": 168,
+    "alert_cooldown_sec": 60
+  }
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=RATAN Engine - Resilient Aggregation and Transition for Advanced Networking
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/ratan-engine
+ExecStart=/usr/bin/python3 main.py --mode server --api-port 8080 --data-port 9000 --probe-port 9001
+Restart=always
+RestartSec=5
+Environment=RATAN_PROJECT_DIR=/root/ratan-engine
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
