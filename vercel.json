@@ -1,8 +1,0 @@
-{
-  "version": 2,
-  "name": "ratan-dashboard",
-  "outputDirectory": "dashboard",
-  "buildCommand": "",
-  "installCommand": "",
-  "framework": null
-}
