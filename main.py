@@ -29,6 +29,7 @@ from engine.tunnel_server import TunnelServer
 from engine.tunnel_client import TunnelClient
 from api.control_plane import create_app
 from api.bridge import router as bridge_router
+from serve_dashboard import add_dashboard
 
 logging.basicConfig(
     level=logging.INFO,
@@ -89,6 +90,7 @@ def run_server(args, config, health, balancer, metrics):
     # Create FastAPI app
     app = create_app(config, health, balancer, metrics, tunnel)
     app.include_router(bridge_router)
+    add_dashboard(app)
 
     # Start engine components
     health.start()
@@ -143,6 +145,7 @@ def run_api_only(args, config, health, balancer, metrics):
 
     app = create_app(config, health, balancer, metrics)
     app.include_router(bridge_router)
+    add_dashboard(app)
 
     # Register simulated paths for testing
     health.register_path("starlink", "sim-starlink", "127.0.0.1", args.probe_port)
