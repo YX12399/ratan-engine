@@ -128,7 +128,7 @@
 
     <script>
     const state = {
-        apiUrl: window.location.hostname.includes('vercel.app') ? '/api' : '',
+        apiUrl: window.location.hostname.includes('vercel.app') ? '' : window.location.origin,
         connected: false,
         config: {},
         configVersion: 0,
