@@ -45,7 +45,7 @@ class TunnelClient:
 
     def __init__(self, config_store, health_monitor, path_balancer,
                  client_id: str, server_addr: str, server_data_port: int = 9000,
-                 server_probe_port: int = 9001):
+                 server_probe_port: int = 9001, tun_device=None):
         self.config = config_store
         self.health = health_monitor
         self.balancer = path_balancer
@@ -53,6 +53,7 @@ class TunnelClient:
         self.server_addr = server_addr
         self.server_data_port = server_data_port
         self.server_probe_port = server_probe_port
+        self.tun = tun_device
 
         self._subflows: dict[str, SubflowConnection] = {}
         self._seq = 0
@@ -89,7 +90,8 @@ class TunnelClient:
             await writer.drain()
 
             # Wait for ACK
-            ack = await asyncio.wait_for(reader.readexactly(1), timeout=10)
+            handshake_timeout = self.config.get("tunnel.handshake_timeout_sec", 10)
+            ack = await asyncio.wait_for(reader.readexactly(1), timeout=handshake_timeout)
             if ack != b"\x01":
                 raise ConnectionError("Handshake failed")
 
@@ -165,8 +167,88 @@ class TunnelClient:
             sf.connected = False
             self.health.record_probe(path_id, None, False)
 
+    async def start_all(self):
+        """Start traffic forwarding, probing, and receive loops."""
+        self._running = True
+        tasks = []
+
+        # TUN → tunnel (outbound traffic)
+        if self.tun and self.tun.is_open:
+            tasks.append(self._traffic_loop())
+
+        # Per-subflow receive loops (return traffic from VPS)
+        if self.tun and self.tun.is_open:
+            for pid in self._subflows:
+                tasks.append(self._receive_loop(pid))
+
+        # Probe loops per subflow
+        for pid in self._subflows:
+            tasks.append(self._probe_loop(pid))
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _traffic_loop(self):
+        """Read IP packets from TUN and send through the tunnel."""
+        logger.info("Traffic loop started — reading from TUN")
+        while self._running and self.tun and self.tun.is_open:
+            try:
+                packet = await self.tun.read_packet()
+                if packet:
+                    await self.send(packet)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Traffic loop error: {e}")
+                await asyncio.sleep(0.01)
+
+    async def _receive_loop(self, path_id: str):
+        """Read return traffic from VPS on a subflow, inject into TUN."""
+        while self._running:
+            sf = self._subflows.get(path_id)
+            if not sf or not sf.connected or not sf.reader:
+                await asyncio.sleep(1)
+                continue
+
+            try:
+                # Read packet type
+                raw_type = await asyncio.wait_for(sf.reader.readexactly(1), timeout=0.1)
+                pkt_type = struct.unpack("!B", raw_type)[0]
+
+                if pkt_type == PKT_DATA:
+                    # Return data: seq(8) + payload_len(4) + payload
+                    header = await sf.reader.readexactly(12)
+                    seq, payload_len = struct.unpack("!QI", header)
+                    payload = await sf.reader.readexactly(payload_len)
+
+                    # Inject into TUN
+                    if self.tun and self.tun.is_open:
+                        await self.tun.write_packet(payload)
+
+                elif pkt_type == PKT_PROBE_ACK:
+                    # Handled by probe loop — but if we get one here, process it
+                    ts_data = await sf.reader.readexactly(8)
+                    echo_ts = struct.unpack("!d", ts_data)[0]
+                    rtt = (time.time() - echo_ts) * 1000
+                    sf.rtt_ms = rtt
+                    self.health.record_probe(path_id, rtt, True)
+
+                elif pkt_type == PKT_KEEPALIVE:
+                    pass  # Server keepalive, no action needed
+
+            except asyncio.TimeoutError:
+                continue  # Normal — no data waiting, loop back
+            except (asyncio.IncompleteReadError, ConnectionResetError):
+                logger.warning(f"Receive loop: subflow {path_id} disconnected")
+                sf.connected = False
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Receive loop error on {path_id}: {e}")
+                await asyncio.sleep(0.1)
+
     async def start_probing(self):
-        """Start inline probe loop on all subflows."""
+        """Start inline probe loop on all subflows (legacy, use start_all instead)."""
         self._running = True
         tasks = [self._probe_loop(pid) for pid in self._subflows]
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -176,7 +258,8 @@ class TunnelClient:
         while self._running:
             sf = self._subflows.get(path_id)
             if not sf or not sf.connected:
-                await asyncio.sleep(1)
+                reconnect_delay = self.config.get("tunnel.reconnect_delay_sec", 1)
+                await asyncio.sleep(reconnect_delay)
                 continue
 
             interval = self.config.get("path_health.probe_interval_ms", 50) / 1000
@@ -186,7 +269,8 @@ class TunnelClient:
                 await sf.writer.drain()
 
                 # Read probe ack
-                raw = await asyncio.wait_for(sf.reader.readexactly(9), timeout=2)
+                probe_timeout = self.config.get("tunnel.probe_read_timeout_sec", 2)
+                raw = await asyncio.wait_for(sf.reader.readexactly(9), timeout=probe_timeout)
                 pkt_type, echo_ts = struct.unpack("!Bd", raw)
                 if pkt_type == PKT_PROBE_ACK:
                     rtt = (time.time() - echo_ts) * 1000

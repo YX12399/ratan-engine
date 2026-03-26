@@ -131,7 +131,8 @@ class PathBalancer:
             self._do_rebalance()
             # Rebalance at 2x probe interval for responsiveness
             interval = self.config.get("path_health.probe_interval_ms", 50) / 1000 * 2
-            time.sleep(max(interval, 0.05))
+            min_interval = self.config.get("scheduling_internals.min_rebalance_interval_sec", 0.05)
+            time.sleep(max(interval, min_interval))
 
     def _do_rebalance(self):
         """Core scheduling logic."""
@@ -267,9 +268,12 @@ class PathBalancer:
         for pid, score in scores.items():
             if score > trigger:
                 base = configured_weights.get(pid, 1.0 / len(scores))
-                tp_factor = throughputs.get(pid, 0) / max(sum(throughputs.values()), 0.001)
-                # 70% configured + 30% throughput-derived
-                effective = 0.7 * base * score + 0.3 * tp_factor
+                sched_internals = self.config.get("scheduling_internals", {})
+                min_denom = sched_internals.get("adaptive_min_throughput_denominator", 0.001)
+                cfg_weight = sched_internals.get("adaptive_config_weight", 0.7)
+                tp_weight = sched_internals.get("adaptive_throughput_weight", 0.3)
+                tp_factor = throughputs.get(pid, 0) / max(sum(throughputs.values()), min_denom)
+                effective = cfg_weight * base * score + tp_weight * tp_factor
                 active_paths[pid] = max(effective, 0.01)
 
         total = sum(active_paths.values()) or 1

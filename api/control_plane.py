@@ -11,19 +11,24 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Any, Optional
+import os
 import time
 
+APP_VERSION = os.environ.get("RATAN_APP_VERSION", "1.0.0")
+CORS_ORIGINS = os.environ.get("RATAN_CORS_ORIGINS", "*").split(",")
 
-def create_app(config_store, health_monitor, path_balancer, metrics_collector, tunnel_server=None):
+
+def create_app(config_store, health_monitor, path_balancer, metrics_collector,
+               tunnel_server=None, ai_optimizer=None):
     app = FastAPI(
         title="RATAN Control Plane",
         description="Resilient Aggregation and Transition for Advanced Networking",
-        version="1.0.0",
+        version=APP_VERSION,
     )
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -276,5 +281,51 @@ def create_app(config_store, health_monitor, path_balancer, metrics_collector, t
             "variants": list(test_def.variants.keys()),
             "duration_sec": test_def.duration_sec,
         }
+
+    # ── AI Optimizer ─────────────────────────────────────────────────
+
+    @app.get("/ai/status")
+    async def ai_status():
+        """Get AI optimizer status."""
+        if ai_optimizer:
+            return ai_optimizer.get_status()
+        return {"enabled": False, "running": False, "note": "AI optimizer not initialized"}
+
+    @app.get("/ai/history")
+    async def ai_history(limit: int = 20):
+        """Get AI recommendation history."""
+        if ai_optimizer:
+            return {"history": ai_optimizer.get_history(limit)}
+        return {"history": []}
+
+    @app.post("/ai/enable")
+    async def ai_enable():
+        """Enable the AI optimizer."""
+        config_store.set("ai_optimizer.enabled", True, "api")
+        if ai_optimizer and not ai_optimizer._running:
+            await ai_optimizer.start()
+        return {"status": "enabled"}
+
+    @app.post("/ai/disable")
+    async def ai_disable():
+        """Disable the AI optimizer."""
+        config_store.set("ai_optimizer.enabled", False, "api")
+        return {"status": "disabled"}
+
+    @app.post("/ai/recommend")
+    async def ai_force_recommend():
+        """Force an immediate AI recommendation."""
+        if not ai_optimizer:
+            raise HTTPException(503, "AI optimizer not initialized")
+        recommendation = await ai_optimizer.force_recommendation()
+        return {"recommendation": recommendation}
+
+    # ── Interfaces ────────────────────────────────────────────────────
+
+    @app.get("/interfaces")
+    async def get_interfaces():
+        """Get managed network interface status."""
+        # Interface data comes from the runtime — not stored in config
+        return {"note": "Interface status available in client mode only"}
 
     return app

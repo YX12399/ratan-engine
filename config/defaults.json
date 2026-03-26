@@ -49,6 +49,47 @@
   "monitoring": {
     "metrics_flush_interval_ms": 5000,
     "history_retention_hours": 168,
-    "alert_cooldown_sec": 60
+    "alert_cooldown_sec": 60,
+    "config_markers_retention": 1000,
+    "min_series_retention": 1000
+  },
+  "tunnel": {
+    "handshake_timeout_sec": 10,
+    "read_timeout_sec": 30,
+    "probe_read_timeout_sec": 2,
+    "reconnect_delay_sec": 1,
+    "socket_timeout_sec": 1.0
+  },
+  "state_thresholds": {
+    "dead_consecutive_failures": 10,
+    "zombie_consecutive_failures": 5
+  },
+  "scheduling_internals": {
+    "min_rebalance_interval_sec": 0.05,
+    "adaptive_config_weight": 0.7,
+    "adaptive_throughput_weight": 0.3,
+    "adaptive_min_throughput_denominator": 0.001
+  },
+  "data_plane": {
+    "tun_name_client": "ratan0",
+    "tun_name_server": "ratan-srv0",
+    "tun_mtu": 1400,
+    "internal_subnet": "10.42.0.0/24",
+    "client_ip": "10.42.0.2",
+    "server_ip": "10.42.0.1",
+    "enable_nat": true
+  },
+  "interfaces": {
+    "auto_discover": true,
+    "routing_table_base": 100,
+    "monitor_interval_sec": 5.0
+  },
+  "ai_optimizer": {
+    "enabled": false,
+    "interval_sec": 60,
+    "model": "claude-sonnet-4-20250514",
+    "rtt_target_ms": 100,
+    "loss_target_pct": 2.0,
+    "max_changes_per_cycle": 3
   }
 }
