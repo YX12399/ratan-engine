@@ -11,19 +11,23 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Any, Optional
+import os
 import time
+
+APP_VERSION = os.environ.get("RATAN_APP_VERSION", "1.0.0")
+CORS_ORIGINS = os.environ.get("RATAN_CORS_ORIGINS", "*").split(",")
 
 
 def create_app(config_store, health_monitor, path_balancer, metrics_collector, tunnel_server=None):
     app = FastAPI(
         title="RATAN Control Plane",
         description="Resilient Aggregation and Transition for Advanced Networking",
-        version="1.0.0",
+        version=APP_VERSION,
     )
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -4,8 +4,15 @@
 
 set -euo pipefail
 
-VPS="${1:-root@89.167.91.132}"
-REMOTE_DIR="/root/ratan-engine"
+VPS="${1:-${RATAN_DEPLOY_TARGET:-}}"
+REMOTE_DIR="${RATAN_REMOTE_DIR:-/root/ratan-engine}"
+
+if [ -z "$VPS" ]; then
+    echo "Error: No deploy target specified."
+    echo "Usage: ./scripts/deploy.sh user@host"
+    echo "   or: export RATAN_DEPLOY_TARGET=user@host"
+    exit 1
+fi
 
 echo "=== Deploying RATAN Engine to $VPS ==="
 

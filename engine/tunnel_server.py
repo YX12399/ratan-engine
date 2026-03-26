@@ -109,7 +109,8 @@ class TunnelServer:
 
         try:
             # Handshake: client sends client_id + path_id
-            header = await asyncio.wait_for(reader.readexactly(2), timeout=10)
+            handshake_timeout = self.config.get("tunnel.handshake_timeout_sec", 10)
+            header = await asyncio.wait_for(reader.readexactly(2), timeout=handshake_timeout)
             client_id_len, path_id_len = struct.unpack("!BB", header)
             client_id = (await reader.readexactly(client_id_len)).decode()
             path_id = (await reader.readexactly(path_id_len)).decode()
@@ -141,7 +142,8 @@ class TunnelServer:
             # Read data loop
             while self._running:
                 try:
-                    raw_type = await asyncio.wait_for(reader.readexactly(1), timeout=30)
+                    read_timeout = self.config.get("tunnel.read_timeout_sec", 30)
+                    raw_type = await asyncio.wait_for(reader.readexactly(1), timeout=read_timeout)
                     pkt_type = struct.unpack("!B", raw_type)[0]
 
                     if pkt_type == PKT_DATA:

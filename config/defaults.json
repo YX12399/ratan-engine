@@ -49,6 +49,25 @@
   "monitoring": {
     "metrics_flush_interval_ms": 5000,
     "history_retention_hours": 168,
-    "alert_cooldown_sec": 60
+    "alert_cooldown_sec": 60,
+    "config_markers_retention": 1000,
+    "min_series_retention": 1000
+  },
+  "tunnel": {
+    "handshake_timeout_sec": 10,
+    "read_timeout_sec": 30,
+    "probe_read_timeout_sec": 2,
+    "reconnect_delay_sec": 1,
+    "socket_timeout_sec": 1.0
+  },
+  "state_thresholds": {
+    "dead_consecutive_failures": 10,
+    "zombie_consecutive_failures": 5
+  },
+  "scheduling_internals": {
+    "min_rebalance_interval_sec": 0.05,
+    "adaptive_config_weight": 0.7,
+    "adaptive_throughput_weight": 0.3,
+    "adaptive_min_throughput_denominator": 0.001
   }
 }

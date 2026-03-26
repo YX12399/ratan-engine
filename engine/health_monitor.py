@@ -224,9 +224,13 @@ class HealthMonitor:
         now = time.time()
         time_since_last = (now - health.last_probe_at) * 1000 if health.last_probe_at else 0
 
-        if health.consecutive_failures > 10 or time_since_last > zombie_timeout * 2:
+        state_cfg = self.config.get("state_thresholds", {})
+        dead_failures = state_cfg.get("dead_consecutive_failures", 10)
+        zombie_failures = state_cfg.get("zombie_consecutive_failures", 5)
+
+        if health.consecutive_failures > dead_failures or time_since_last > zombie_timeout * 2:
             health.state = PathState.DEAD
-        elif health.consecutive_failures > 5 or time_since_last > zombie_timeout:
+        elif health.consecutive_failures > zombie_failures or time_since_last > zombie_timeout:
             health.state = PathState.ZOMBIE
         elif health.score < trigger:
             health.state = PathState.DEAD
@@ -262,7 +266,7 @@ class HealthMonitor:
         """Start UDP probe thread for a path."""
         def probe_loop():
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(1.0)
+            sock.settimeout(self.config.get("tunnel.socket_timeout_sec", 1.0))
             seq = 0
 
             while self._running:

@@ -36,7 +36,7 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("logs/engine.log", mode="a"),
+        logging.FileHandler(os.environ.get("RATAN_LOG_FILE", "logs/engine.log"), mode="a"),
     ],
 )
 logger = logging.getLogger("ratan")
@@ -45,22 +45,23 @@ logger = logging.getLogger("ratan")
 def main():
     parser = argparse.ArgumentParser(description="RATAN Engine")
     parser.add_argument("--mode", choices=["server", "client", "api-only"], default="server")
-    parser.add_argument("--config", default="config/defaults.json")
-    parser.add_argument("--api-port", type=int, default=8080)
-    parser.add_argument("--data-port", type=int, default=9000)
-    parser.add_argument("--probe-port", type=int, default=9001)
-    parser.add_argument("--bind", default="0.0.0.0")
+    parser.add_argument("--config", default=os.environ.get("RATAN_CONFIG_PATH", "config/defaults.json"))
+    parser.add_argument("--api-port", type=int, default=int(os.environ.get("RATAN_API_PORT", "8080")))
+    parser.add_argument("--data-port", type=int, default=int(os.environ.get("RATAN_DATA_PORT", "9000")))
+    parser.add_argument("--probe-port", type=int, default=int(os.environ.get("RATAN_PROBE_PORT", "9001")))
+    parser.add_argument("--bind", default=os.environ.get("RATAN_BIND_ADDR", "0.0.0.0"))
 
     # Client-mode args
-    parser.add_argument("--server-addr", default="89.167.91.132")
-    parser.add_argument("--client-id", default="edge-01")
-    parser.add_argument("--starlink-interface", default="wlan0")
-    parser.add_argument("--cellular-interface", default="wwan0")
+    parser.add_argument("--server-addr", default=os.environ.get("RATAN_SERVER_ADDR", ""))
+    parser.add_argument("--client-id", default=os.environ.get("RATAN_CLIENT_ID", "edge-01"))
+    parser.add_argument("--starlink-interface", default=os.environ.get("RATAN_STARLINK_IFACE", "wlan0"))
+    parser.add_argument("--cellular-interface", default=os.environ.get("RATAN_CELLULAR_IFACE", "wwan0"))
 
     args = parser.parse_args()
 
     # Ensure log directory exists
-    os.makedirs("logs", exist_ok=True)
+    log_file = os.environ.get("RATAN_LOG_FILE", "logs/engine.log")
+    os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
 
     # Initialize core components
     config = ConfigStore(args.config)
@@ -158,7 +159,7 @@ def run_api_only(args, config, health, balancer, metrics):
 
     def simulate_health():
         """Generate simulated health data for dashboard development."""
-        time.sleep(2)
+        time.sleep(config.get("test_orchestration.startup_delay_sec", 2))
         while True:
             # Starlink — generally good, occasional jitter
             sl_rtt = random.gauss(25, 5)

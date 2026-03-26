@@ -24,6 +24,8 @@ PROJECT_DIR = os.environ.get("RATAN_PROJECT_DIR", "/root/ratan-engine")
 GOAL_FILE = os.path.join(PROJECT_DIR, "goal.md")
 PROGRESS_FILE = os.path.join(PROJECT_DIR, "progress.json")
 LOG_DIR = os.path.join(PROJECT_DIR, "logs")
+SYSTEMD_SERVICE_NAME = os.environ.get("RATAN_SERVICE_NAME", "ratan-engine")
+COMMAND_TIMEOUT_SEC = int(os.environ.get("RATAN_COMMAND_TIMEOUT", "30"))
 
 
 class GoalUpdate(BaseModel):
@@ -33,7 +35,7 @@ class GoalUpdate(BaseModel):
 
 class CommandRequest(BaseModel):
     command: str
-    timeout: int = 30
+    timeout: int = COMMAND_TIMEOUT_SEC
 
 
 class BuildStatus(BaseModel):
@@ -103,7 +105,7 @@ async def run_command(req: CommandRequest):
     """Execute a shell command on the VPS (use with caution)."""
     # Whitelist safe commands
     safe_prefixes = [
-        "systemctl status", "systemctl restart ratan",
+        "systemctl status", f"systemctl restart {SYSTEMD_SERVICE_NAME}",
         "cat ", "ls ", "tail ", "head ",
         "python3 -m pytest", "python3 tests/",
         "ip addr", "ip route", "ss -tlnp",
@@ -134,8 +136,8 @@ async def restart_engine():
     """Restart the RATAN engine service."""
     try:
         result = subprocess.run(
-            ["systemctl", "restart", "ratan-engine"],
-            capture_output=True, text=True, timeout=30,
+            ["systemctl", "restart", SYSTEMD_SERVICE_NAME],
+            capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SEC,
         )
         return {
             "status": "restarted" if result.returncode == 0 else "failed",
@@ -183,7 +185,7 @@ def _get_engine_status() -> dict:
     """Check if RATAN engine service is running."""
     try:
         result = subprocess.run(
-            ["systemctl", "is-active", "ratan-engine"],
+            ["systemctl", "is-active", SYSTEMD_SERVICE_NAME],
             capture_output=True, text=True, timeout=5,
         )
         return {"running": result.stdout.strip() == "active"}

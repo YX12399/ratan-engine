@@ -89,7 +89,8 @@ class TunnelClient:
             await writer.drain()
 
             # Wait for ACK
-            ack = await asyncio.wait_for(reader.readexactly(1), timeout=10)
+            handshake_timeout = self.config.get("tunnel.handshake_timeout_sec", 10)
+            ack = await asyncio.wait_for(reader.readexactly(1), timeout=handshake_timeout)
             if ack != b"\x01":
                 raise ConnectionError("Handshake failed")
 
@@ -176,7 +177,8 @@ class TunnelClient:
         while self._running:
             sf = self._subflows.get(path_id)
             if not sf or not sf.connected:
-                await asyncio.sleep(1)
+                reconnect_delay = self.config.get("tunnel.reconnect_delay_sec", 1)
+                await asyncio.sleep(reconnect_delay)
                 continue
 
             interval = self.config.get("path_health.probe_interval_ms", 50) / 1000
@@ -186,7 +188,8 @@ class TunnelClient:
                 await sf.writer.drain()
 
                 # Read probe ack
-                raw = await asyncio.wait_for(sf.reader.readexactly(9), timeout=2)
+                probe_timeout = self.config.get("tunnel.probe_read_timeout_sec", 2)
+                raw = await asyncio.wait_for(sf.reader.readexactly(9), timeout=probe_timeout)
                 pkt_type, echo_ts = struct.unpack("!Bd", raw)
                 if pkt_type == PKT_PROBE_ACK:
                     rtt = (time.time() - echo_ts) * 1000

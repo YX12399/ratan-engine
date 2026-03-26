@@ -4,6 +4,7 @@ Every change is versioned with timestamp so we can correlate config changes with
 """
 
 import json
+import os
 import time
 import copy
 import threading
@@ -40,7 +41,7 @@ class ConfigStore:
             self._config = {}
 
         # Try loading persisted state
-        self._persist_path = Path("config/current_state.json")
+        self._persist_path = Path(os.environ.get("RATAN_STATE_FILE", "config/current_state.json"))
         if self._persist_path.exists():
             with open(self._persist_path) as f:
                 state = json.load(f)

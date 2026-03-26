@@ -33,7 +33,8 @@ class MetricsCollector:
         self._collection_thread: Optional[threading.Thread] = None
 
         # Config change markers — appear in metric queries for correlation
-        self._config_markers: deque = deque(maxlen=1000)
+        markers_retention = config_store.get("monitoring.config_markers_retention", 1000)
+        self._config_markers: deque = deque(maxlen=markers_retention)
         config_store.subscribe(self._on_config_change)
 
     def record(self, name: str, value: float, tags: Optional[dict] = None):
@@ -45,7 +46,8 @@ class MetricsCollector:
                 # Estimate max points: retention_hours * 3600 / flush_interval_sec
                 flush_interval = self.config.get("monitoring.metrics_flush_interval_ms", 5000) / 1000
                 max_points = int(retention * 3600 / max(flush_interval, 1))
-                self._series[key] = deque(maxlen=max(max_points, 1000))
+                min_retention = self.config.get("monitoring.min_series_retention", 1000)
+                self._series[key] = deque(maxlen=max(max_points, min_retention))
 
             self._series[key].append(MetricPoint(
                 timestamp=time.time(),
