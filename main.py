@@ -27,6 +27,10 @@ from engine.path_balancer import PathBalancer
 from engine.metrics_collector import MetricsCollector
 from engine.tunnel_server import TunnelServer
 from engine.tunnel_client import TunnelClient
+from engine.tun_device import TunDevice
+from engine.nat_manager import NatManager
+from engine.interface_manager import InterfaceManager
+from engine.ai.claude_optimizer import ClaudeOptimizer
 from api.control_plane import create_app
 from api.bridge import router as bridge_router
 from serve_dashboard import add_dashboard
@@ -57,6 +61,9 @@ def main():
     parser.add_argument("--starlink-interface", default=os.environ.get("RATAN_STARLINK_IFACE", "wlan0"))
     parser.add_argument("--cellular-interface", default=os.environ.get("RATAN_CELLULAR_IFACE", "wwan0"))
 
+    # Data plane args
+    parser.add_argument("--no-tun", action="store_true", help="Disable TUN device (for testing without root)")
+
     args = parser.parse_args()
 
     # Ensure log directory exists
@@ -81,34 +88,69 @@ def run_server(args, config, health, balancer, metrics):
     """Run in server mode — tunnel server + API."""
     logger.info("Starting RATAN Engine in SERVER mode")
 
-    tunnel = TunnelServer(
-        config, health, balancer,
-        bind_addr=args.bind,
-        data_port=args.data_port,
-        probe_port=args.probe_port,
-    )
+    tun = None
+    nat = NatManager()
 
-    # Create FastAPI app
-    app = create_app(config, health, balancer, metrics, tunnel)
-    app.include_router(bridge_router)
-    add_dashboard(app)
-
-    # Start engine components
-    health.start()
-    balancer.start()
-    metrics.start_collection(health, balancer)
-
-    logger.info(f"API on :{args.api_port} | Data on :{args.data_port} | Probes on :{args.probe_port}")
-
-    # Run API and tunnel concurrently
     async def run_all():
-        # Start tunnel server in background
-        tunnel_task = asyncio.create_task(tunnel.start())
+        nonlocal tun
 
-        # Start uvicorn
-        uvi_config = uvicorn.Config(app, host=args.bind, port=args.api_port, log_level="info")
-        server = uvicorn.Server(uvi_config)
-        await server.serve()
+        # Set up TUN device for data plane
+        if not args.no_tun:
+            dp = config.get("data_plane", {})
+            tun = TunDevice(
+                name=dp.get("tun_name_server", "ratan-srv0"),
+                mtu=dp.get("tun_mtu", 1400),
+            )
+            await tun.open(
+                ip_addr=dp.get("server_ip", "10.42.0.1"),
+                subnet_mask=int(dp.get("internal_subnet", "10.42.0.0/24").split("/")[1]),
+            )
+            if dp.get("enable_nat", True):
+                nat.setup_server_nat(
+                    tun.name,
+                    dp.get("internal_subnet", "10.42.0.0/24"),
+                )
+            logger.info("Data plane ready — TUN + NAT configured")
+
+        tunnel = TunnelServer(
+            config, health, balancer,
+            bind_addr=args.bind,
+            data_port=args.data_port,
+            probe_port=args.probe_port,
+            tun_device=tun,
+        )
+
+        # AI optimizer
+        optimizer = ClaudeOptimizer(config, health, balancer, metrics)
+
+        # Create FastAPI app
+        app = create_app(config, health, balancer, metrics, tunnel, ai_optimizer=optimizer)
+        app.include_router(bridge_router)
+        add_dashboard(app)
+
+        # Start engine components
+        health.start()
+        balancer.start()
+        metrics.start_collection(health, balancer)
+
+        logger.info(f"API on :{args.api_port} | Data on :{args.data_port} | Probes on :{args.probe_port}")
+
+        try:
+            # Start tunnel server in background
+            tunnel_task = asyncio.create_task(tunnel.start())
+
+            # Start AI optimizer
+            await optimizer.start()
+
+            # Start uvicorn
+            uvi_config = uvicorn.Config(app, host=args.bind, port=args.api_port, log_level="info")
+            server = uvicorn.Server(uvi_config)
+            await server.serve()
+        finally:
+            await optimizer.stop()
+            if tun:
+                await tun.close()
+            nat.cleanup()
 
     asyncio.run(run_all())
 
@@ -117,25 +159,78 @@ def run_client(args, config, health, balancer, metrics):
     """Run in client mode — tunnel client connecting to VPS."""
     logger.info("Starting RATAN Engine in CLIENT mode")
 
-    client = TunnelClient(
-        config, health, balancer,
-        client_id=args.client_id,
-        server_addr=args.server_addr,
-        server_data_port=args.data_port,
-        server_probe_port=args.probe_port,
-    )
-
-    health.start()
-    balancer.start()
-    metrics.start_collection(health, balancer)
+    tun = None
+    nat = NatManager()
+    iface_mgr = InterfaceManager(config)
 
     async def run_client_async():
-        # Register interfaces
-        await client.add_interface("starlink", args.starlink_interface)
-        await client.add_interface("cellular", args.cellular_interface)
+        nonlocal tun
 
-        # Start probing
-        await client.start_probing()
+        # Set up TUN device for data plane
+        if not args.no_tun:
+            dp = config.get("data_plane", {})
+            tun = TunDevice(
+                name=dp.get("tun_name_client", "ratan0"),
+                mtu=dp.get("tun_mtu", 1400),
+            )
+            await tun.open(
+                ip_addr=dp.get("client_ip", "10.42.0.2"),
+                subnet_mask=int(dp.get("internal_subnet", "10.42.0.0/24").split("/")[1]),
+            )
+            logger.info("Client TUN device ready")
+
+        client = TunnelClient(
+            config, health, balancer,
+            client_id=args.client_id,
+            server_addr=args.server_addr,
+            server_data_port=args.data_port,
+            server_probe_port=args.probe_port,
+            tun_device=tun,
+        )
+
+        health.start()
+        balancer.start()
+        metrics.start_collection(health, balancer)
+
+        # Discover interfaces and set up policy routing
+        interfaces = {
+            "starlink": args.starlink_interface,
+            "cellular": args.cellular_interface,
+        }
+
+        for path_id, iface_name in interfaces.items():
+            info = iface_mgr.discover_interface(path_id, iface_name)
+            if info:
+                iface_mgr.setup_policy_routing(path_id)
+                source_addr = iface_mgr.get_source_addr(path_id)
+                await client.add_interface(path_id, iface_name, local_addr=source_addr)
+            else:
+                logger.warning(f"Interface {iface_name} not available, registering without binding")
+                await client.add_interface(path_id, iface_name)
+
+        # Set up client routes (TUN as default, preserve VPS route)
+        if tun and not args.no_tun:
+            # Find the gateway for VPS from whichever interface can reach it
+            for path_id, info_dict in iface_mgr.get_all_interfaces().items():
+                gw = info_dict.get("gateway", "")
+                if gw:
+                    nat.setup_client_routes(tun.name, args.server_addr, gw)
+                    break
+
+        # Start interface monitoring
+        iface_mgr.start_monitoring(health)
+
+        try:
+            # Start all: traffic loop + probe loops + receive loops
+            if tun and tun.is_open:
+                await client.start_all()
+            else:
+                await client.start_probing()
+        finally:
+            if tun:
+                await tun.close()
+            nat.cleanup()
+            iface_mgr.cleanup()
 
     asyncio.run(run_client_async())
 

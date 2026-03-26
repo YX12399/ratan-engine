@@ -60,18 +60,21 @@ class TunnelServer:
     """
 
     def __init__(self, config_store, health_monitor, path_balancer,
-                 bind_addr: str = "0.0.0.0", data_port: int = 9000, probe_port: int = 9001):
+                 bind_addr: str = "0.0.0.0", data_port: int = 9000, probe_port: int = 9001,
+                 tun_device=None):
         self.config = config_store
         self.health = health_monitor
         self.balancer = path_balancer
         self.bind_addr = bind_addr
         self.data_port = data_port
         self.probe_port = probe_port
+        self.tun = tun_device
 
         self._sessions: dict[str, ClientSession] = {}
         self._server: Optional[asyncio.AbstractServer] = None
         self._probe_transport = None
         self._running = False
+        self._return_seq: int = 0
 
     async def start(self):
         """Start the tunnel server."""
@@ -90,6 +93,11 @@ class TunnelServer:
             local_addr=(self.bind_addr, self.probe_port),
         )
         logger.info(f"Probe responder on {self.bind_addr}:{self.probe_port}")
+
+        # Start return traffic loop if TUN is available
+        if self.tun and self.tun.is_open:
+            asyncio.create_task(self._return_traffic_loop())
+            logger.info("Return traffic loop started")
 
         async with self._server:
             await self._server.serve_forever()
@@ -214,10 +222,71 @@ class TunnelServer:
         logger.debug(f"Control message from {path_id}: {msg[:100]}")
 
     async def _deliver_packet(self, session: ClientSession, data: bytes):
-        """Deliver reassembled packet to its destination."""
-        # In production, this forwards to the actual destination
-        # For now, log throughput
+        """Deliver reassembled packet — write to TUN for forwarding to internet."""
         self.balancer.record_bytes("aggregate", len(data))
+        if self.tun and self.tun.is_open:
+            await self.tun.write_packet(data)
+
+    async def _return_traffic_loop(self):
+        """
+        Read IP packets coming back from the internet (via TUN) and send
+        them back to the appropriate client through their subflows.
+        """
+        logger.info("Return traffic loop listening on TUN")
+        while self._running and self.tun and self.tun.is_open:
+            try:
+                data = await self.tun.read_packet()
+                if not data:
+                    continue
+
+                # For single-client setups, send to the first (only) session.
+                # For multi-client, parse dest IP from IP header to map to session.
+                session = self._find_session_for_return(data)
+                if not session:
+                    continue
+
+                # Send return data on the best available subflow
+                await self._send_return_data(session, data)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Return traffic error: {e}", exc_info=True)
+                await asyncio.sleep(0.1)
+
+    def _find_session_for_return(self, ip_packet: bytes) -> Optional[ClientSession]:
+        """
+        Find which client session should receive this return packet.
+        For now, returns the first active session (single-client mode).
+        Multi-client would parse the destination IP from the IP header.
+        """
+        for session in self._sessions.values():
+            if session.subflows:
+                return session
+        return None
+
+    async def _send_return_data(self, session: ClientSession, data: bytes):
+        """Send return traffic to client through an active subflow."""
+        # Pick the subflow with the most recent activity (best connected)
+        best_sf = None
+        best_time = 0.0
+        for sf in session.subflows.values():
+            if sf.writer and sf.last_seen > best_time:
+                best_sf = sf
+                best_time = sf.last_seen
+
+        if not best_sf or not best_sf.writer:
+            return
+
+        try:
+            header = struct.pack("!BQI", PKT_DATA, self._return_seq, len(data))
+            best_sf.writer.write(header + data)
+            await best_sf.writer.drain()
+            best_sf.bytes_sent += len(data)
+            self._return_seq += 1
+            self.balancer.record_bytes(best_sf.path_id, len(data))
+        except Exception as e:
+            logger.warning(f"Failed to send return data on {best_sf.path_id}: {e}")
 
     def get_sessions(self) -> dict:
         """Get info about connected client sessions."""
