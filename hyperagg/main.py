@@ -146,10 +146,11 @@ async def run_server(args, config: dict) -> None:
     logger.info("Starting HyperAgg in SERVER mode")
 
     tun = None
+    pkt_log = PacketLogger()
     server = TunnelServer(config)
+    server.packet_logger = pkt_log
     sdn = SDNController(config, mode="server")
     sdn.set_tunnel(server)
-    pkt_log = PacketLogger()
 
     if not args.no_tun:
         tun = TunDevice(
@@ -212,11 +213,11 @@ async def run_client(args, config: dict) -> None:
         sys.exit(1)
 
     tun = None
+    pkt_log = PacketLogger()
     client = TunnelClient(config)
     client.packet_logger = pkt_log
     sdn = SDNController(config, mode="client")
     sdn.set_tunnel(client)
-    pkt_log = PacketLogger()
 
     if not args.no_tun:
         tun = TunDevice(

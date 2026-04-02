@@ -113,8 +113,10 @@ class TunnelServer:
         if key_str and not key_str.startswith("$"):
             import base64
             self._crypto = PacketCrypto(base64.b64decode(key_str))
+            logger.info("Encryption enabled (ChaCha20-Poly1305)")
         else:
             self._crypto = None
+            logger.warning("Encryption DISABLED — packets sent in plaintext")
 
         # FEC
         self._fec = FecEngine(config)
@@ -132,8 +134,9 @@ class TunnelServer:
         self._sessions: dict[str, ClientSession] = {}
         self._addr_to_session: dict[tuple[str, int], ClientSession] = {}
 
-        # TUN device (set externally)
+        # TUN device and packet logger (set externally)
         self.tun = None
+        self.packet_logger = None
 
         # UDP socket
         self._sock: Optional[socket.socket] = None

@@ -119,8 +119,10 @@ class TunnelClient:
         if key_str and not key_str.startswith("$"):
             import base64
             self._crypto = PacketCrypto(base64.b64decode(key_str))
+            logger.info("Encryption enabled (ChaCha20-Poly1305)")
         else:
             self._crypto = None
+            logger.warning("Encryption DISABLED — packets sent in plaintext")
 
         # FEC
         self._fec = FecEngine(config)

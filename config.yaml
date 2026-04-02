@@ -7,6 +7,8 @@ vps:
   tunnel_port: 9999
   api_port: 9090
   encryption_key: "${HYPERAGG_KEY}"
+  server_ip: "10.99.0.2"    # VPS-side TUN IP
+  client_ip: "10.99.0.1"    # Edge-side TUN IP
 
 interfaces:
   wan_interfaces: []  # Auto-detected at runtime
