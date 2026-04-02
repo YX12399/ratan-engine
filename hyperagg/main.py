@@ -66,6 +66,9 @@ Examples:
   # Edge client (specify interfaces):
   sudo python -m hyperagg --mode client --vps-host 203.0.113.50 --interfaces eth1 usb0
 
+  # Beelink as router (laptop connects to Beelink's eth0/WiFi, Beelink bonds Starlink+cellular):
+  sudo python -m hyperagg --mode client --vps-host 203.0.113.50 --interfaces eth1 usb0 --lan-interface eth0
+
   # Demo mode (no hardware, no root):
   python -m hyperagg --mode demo
 
@@ -92,6 +95,17 @@ Examples:
         nargs="*",
         default=None,
         help="WAN interface names (e.g., eth1 usb0). Auto-detected if omitted.",
+    )
+    parser.add_argument(
+        "--lan-interface",
+        default=None,
+        help="LAN interface for Beelink router mode (e.g., eth0). "
+        "Laptops connected to this interface route through the tunnel.",
+    )
+    parser.add_argument(
+        "--lan-ip",
+        default="192.168.50.1",
+        help="IP for LAN interface in router mode (default: 192.168.50.1)",
     )
     parser.add_argument(
         "--log-level",
@@ -199,6 +213,7 @@ async def run_client(args, config: dict) -> None:
 
     tun = None
     client = TunnelClient(config)
+    client.packet_logger = pkt_log
     sdn = SDNController(config, mode="client")
     sdn.set_tunnel(client)
     pkt_log = PacketLogger()
@@ -258,6 +273,18 @@ async def run_client(args, config: dict) -> None:
                 )
         await tun.setup_routing(vps_ip=vps_host, wan_routes=wan_routes)
 
+    # Set up LAN gateway (Beelink router mode)
+    if args.lan_interface and tun and tun.is_open:
+        nm.setup_lan_gateway(
+            lan_interface=args.lan_interface,
+            lan_ip=args.lan_ip,
+            tun_name=tun.name,
+        )
+        logger.info(
+            f"Router mode: laptops on {args.lan_interface} ({args.lan_ip}) "
+            f"route through HyperAgg tunnel"
+        )
+
     # Dashboard
     app = create_dashboard_app(sdn, pkt_log)
 
@@ -267,7 +294,8 @@ async def run_client(args, config: dict) -> None:
             sig, lambda: asyncio.create_task(_shutdown(client, tun, sdn))
         )
 
-    logger.info(f"Dashboard at http://localhost:{args.api_port}")
+    dashboard_ip = args.lan_ip if args.lan_interface else "localhost"
+    logger.info(f"Dashboard at http://{dashboard_ip}:{args.api_port}")
 
     try:
         uvi_config = uvicorn.Config(
@@ -410,132 +438,243 @@ class DemoSDNController:
 
 
 async def _simulate_data(sdn: DemoSDNController, pkt_log) -> None:
-    """Generate realistic simulated data for demo mode."""
+    """
+    Generate a realistic demo scenario that tells the HyperAgg story:
+
+    Timeline (repeating every ~90 seconds):
+      0-30s:  Steady aggregation — both paths healthy, AI scheduling
+      30-45s: Starlink degradation — RTT climbs, loss increases, AI shifts to cellular
+      45-55s: Starlink dropout — FEC recovers lost packets, zero app-visible disruption
+      55-70s: Recovery — Starlink returns, AI gradually re-integrates it
+      70-90s: Steady state again — both paths bonded
+
+    This is the "money shot" for JLR: the dashboard shows instant failover
+    while MPTCP would show a 2-10 second disruption.
+    """
+    from scipy import stats as sp_stats
+
     seq = 0
     pkt_sent = {0: 0, 1: 0}
-
-    # Starlink baseline: 30ms RTT, 2ms jitter, 1% loss
-    # Cellular baseline: 60ms RTT, 8ms jitter, 3% loss
-    sl_rtt = 30.0
-    cell_rtt = 60.0
     fec_recoveries = 0
     fec_mode = "xor"
     mode_changes = 0
+    tick = 0
+    decisions_by_reason: dict[str, int] = {}
 
-    sdn._emit_event("system", "HyperAgg demo started — simulated data")
-    sdn._emit_event("system", "Aggregating on 2 paths, AI mode active")
+    sdn._emit_event("system", "HyperAgg started — aggregating on 2 paths")
+    sdn._emit_event("system", "AI scheduler active, FEC auto-mode enabled")
 
     while True:
         try:
-            # Simulate Starlink path
-            sl_rtt_now = max(5, sl_rtt + random.gauss(0, 3))
-            sl_jitter = abs(random.gauss(0, 2))
-            sl_loss = random.random() < 0.01
-            sl_score = max(0, min(1, 1.0 - (sl_rtt_now / 150 * 0.2 + 0.01 * 0.5 + sl_jitter / 75 * 0.3)))
+            # Determine scenario phase (90-second cycle)
+            phase_tick = tick % 90
 
-            # Simulate cellular path
-            cell_rtt_now = max(10, cell_rtt + random.gauss(0, 8))
-            cell_jitter = abs(random.gauss(0, 5))
-            cell_loss = random.random() < 0.03
-            cell_score = max(0, min(1, 1.0 - (cell_rtt_now / 150 * 0.2 + 0.03 * 0.5 + cell_jitter / 75 * 0.3)))
+            if phase_tick < 30:
+                # Phase 1: Steady aggregation
+                sl_base_rtt, sl_jitter_std, sl_loss_rate = 30, 3, 0.01
+                cell_base_rtt, cell_jitter_std, cell_loss_rate = 60, 8, 0.03
+                sl_alive = True
+                sl_trend = "stable"
 
-            # Delivery probability (simplified)
-            from scipy import stats as sp_stats
-            sl_delivery = float(sp_stats.norm.cdf(150, loc=sl_rtt_now, scale=max(0.1, sl_jitter))) * 0.99
-            cell_delivery = float(sp_stats.norm.cdf(150, loc=cell_rtt_now, scale=max(0.1, cell_jitter))) * 0.97
+                if phase_tick == 0 and tick > 0:
+                    sdn._emit_event("system", "Cycle restart — both paths healthy")
+                    fec_mode = "xor"
 
-            # Simulate scheduling decisions
-            sl_share = sl_score / (sl_score + cell_score) if (sl_score + cell_score) > 0 else 0.5
+            elif phase_tick < 45:
+                # Phase 2: Starlink degrading
+                degrade = (phase_tick - 30) / 15.0  # 0.0 → 1.0
+                sl_base_rtt = 30 + degrade * 170  # 30ms → 200ms
+                sl_jitter_std = 3 + degrade * 40
+                sl_loss_rate = 0.01 + degrade * 0.14  # 1% → 15%
+                cell_base_rtt, cell_jitter_std, cell_loss_rate = 60, 8, 0.03
+                sl_alive = True
+                sl_trend = "degrading"
+
+                if phase_tick == 30:
+                    sdn._emit_event("path", "Starlink path degrading — RTT climbing")
+                    sdn._emit_event("scheduler", "AI shifting traffic to cellular")
+                if phase_tick == 38 and fec_mode != "reed_solomon":
+                    fec_mode = "reed_solomon"
+                    mode_changes += 1
+                    sdn._emit_event("fec", "FEC upgraded: xor -> reed_solomon (loss > 5%)")
+
+            elif phase_tick < 55:
+                # Phase 3: Starlink dropout — THIS IS THE MONEY SHOT
+                sl_base_rtt, sl_jitter_std, sl_loss_rate = 500, 100, 0.80
+                cell_base_rtt, cell_jitter_std, cell_loss_rate = 65, 10, 0.03
+                sl_alive = phase_tick < 47  # Goes fully dead at tick 47
+                sl_trend = "degrading"
+
+                if phase_tick == 45:
+                    sdn._emit_event("path", "STARLINK DOWN — path unresponsive")
+                    sdn._emit_event("fec", "FEC recovering lost packets from parity")
+                    sdn._emit_event("scheduler", "All traffic on cellular — zero app disruption")
+                    fec_mode = "replicate"
+                    mode_changes += 1
+
+            elif phase_tick < 70:
+                # Phase 4: Starlink recovery
+                recover = (phase_tick - 55) / 15.0  # 0.0 → 1.0
+                sl_base_rtt = 200 - recover * 170  # 200ms → 30ms
+                sl_jitter_std = 40 - recover * 37
+                sl_loss_rate = 0.15 - recover * 0.14
+                cell_base_rtt, cell_jitter_std, cell_loss_rate = 60, 8, 0.03
+                sl_alive = True
+                sl_trend = "improving"
+
+                if phase_tick == 55:
+                    sdn._emit_event("path", "Starlink recovering — probes responding")
+                    sdn._emit_event("scheduler", "AI gradually re-integrating Starlink")
+                if phase_tick == 62 and fec_mode != "xor":
+                    fec_mode = "xor"
+                    mode_changes += 1
+                    sdn._emit_event("fec", "FEC downgraded: reed_solomon -> xor (loss < 2%)")
+
+            else:
+                # Phase 5: Back to steady
+                sl_base_rtt, sl_jitter_std, sl_loss_rate = 30, 3, 0.01
+                cell_base_rtt, cell_jitter_std, cell_loss_rate = 60, 8, 0.03
+                sl_alive = True
+                sl_trend = "stable"
+
+            # Generate actual values with noise
+            sl_rtt = max(5, sl_base_rtt + random.gauss(0, sl_jitter_std))
+            sl_jitter = abs(random.gauss(0, sl_jitter_std))
+            cell_rtt = max(10, cell_base_rtt + random.gauss(0, cell_jitter_std))
+            cell_jitter = abs(random.gauss(0, cell_jitter_std))
+
+            # Quality scores
+            def _score(rtt, loss, jitter):
+                return max(0, min(1, 1.0 - (rtt / 150 * 0.2 + loss * 0.5 + jitter / 75 * 0.3)))
+
+            sl_score = _score(sl_rtt, sl_loss_rate, sl_jitter) if sl_alive else 0.0
+            cell_score = _score(cell_rtt, cell_loss_rate, cell_jitter)
+
+            # Delivery probability
+            sl_delivery = float(sp_stats.norm.cdf(
+                150, loc=sl_rtt, scale=max(0.1, sl_jitter)
+            )) * (1 - sl_loss_rate) if sl_alive else 0.0
+            cell_delivery = float(sp_stats.norm.cdf(
+                150, loc=cell_rtt, scale=max(0.1, cell_jitter)
+            )) * (1 - cell_loss_rate)
+
+            # Packet distribution based on scores
+            total_score = sl_score + cell_score
+            sl_share = sl_score / total_score if total_score > 0 else 0.0
             pkts_this_tick = random.randint(80, 120)
-            sl_pkts = int(pkts_this_tick * sl_share)
+            sl_pkts = int(pkts_this_tick * sl_share) if sl_alive else 0
             cell_pkts = pkts_this_tick - sl_pkts
             pkt_sent[0] += sl_pkts
             pkt_sent[1] += cell_pkts
 
-            # Simulate FEC recovery (occasionally)
-            if random.random() < 0.05:
+            # FEC recovery simulation (more during degradation)
+            fec_recover_chance = sl_loss_rate * 0.5 if sl_alive else 0.1
+            if random.random() < fec_recover_chance:
                 fec_recoveries += 1
-                pkt_log.log(seq, 1, "recovered", 1380, 0, 0, 0, "FEC recovery")
-                sdn._emit_event("fec", f"Recovered packet #{seq} from XOR parity")
+                pkt_log.log(seq, 0, "recovered", 1380, 0, seq // 5, 0, "FEC recovery")
+                if random.random() < 0.3:
+                    sdn._emit_event("fec", f"Recovered packet #{seq} from {fec_mode} parity")
 
-            # Determine scheduler reason
-            if sl_delivery > 0.95 and (sl_delivery - cell_delivery) > 0.3:
+            # Scheduler reason
+            if not sl_alive or sl_delivery < 0.1:
+                reason = "single-path"
+            elif sl_delivery > 0.95 and (sl_delivery - cell_delivery) > 0.3:
                 reason = "single-path"
             elif sl_delivery > 0.7:
                 reason = "split-fec"
-            else:
+            elif sl_delivery > 0.5 and cell_delivery > 0.5:
                 reason = "stripe"
+            else:
+                reason = "degraded"
+
+            decisions_by_reason[reason] = decisions_by_reason.get(reason, 0) + pkts_this_tick
+
+            # Effective loss after FEC (should be ~0 when FEC is working)
+            effective_loss = max(0, (sl_loss_rate * sl_share + cell_loss_rate * (1 - sl_share))
+                                - (fec_recover_chance * 0.9))
+
+            # Recommended actions
+            if sl_delivery > 0.95:
+                sl_action = "prefer"
+            elif sl_delivery > 0.7:
+                sl_action = "use"
+            elif sl_delivery > 0.3:
+                sl_action = "avoid"
+            else:
+                sl_action = "abandon"
+
+            cell_action = "prefer" if cell_delivery > 0.95 else "use"
 
             # Update state
             sdn._state["paths"] = {
                 0: {
-                    "avg_rtt_ms": round(sl_rtt_now, 1),
-                    "min_rtt_ms": round(sl_rtt_now - 5, 1),
-                    "max_rtt_ms": round(sl_rtt_now + 8, 1),
+                    "avg_rtt_ms": round(sl_rtt, 1),
+                    "min_rtt_ms": round(max(5, sl_rtt - sl_jitter_std), 1),
+                    "max_rtt_ms": round(sl_rtt + sl_jitter_std * 1.5, 1),
                     "jitter_ms": round(sl_jitter, 1),
-                    "loss_pct": round(0.01 * 100, 2),
+                    "loss_pct": round(sl_loss_rate * 100, 2),
                     "throughput_mbps": round(sl_pkts * 1380 * 8 / 1_000_000, 1),
-                    "is_alive": True,
+                    "is_alive": sl_alive,
                     "quality_score": round(sl_score, 3),
                     "prediction": {
                         "delivery_probability": round(sl_delivery, 3),
-                        "trend": "stable",
-                        "recommended_action": "prefer" if sl_delivery > 0.95 else "use",
+                        "trend": sl_trend,
+                        "recommended_action": sl_action,
                     },
                 },
                 1: {
-                    "avg_rtt_ms": round(cell_rtt_now, 1),
-                    "min_rtt_ms": round(cell_rtt_now - 10, 1),
-                    "max_rtt_ms": round(cell_rtt_now + 15, 1),
+                    "avg_rtt_ms": round(cell_rtt, 1),
+                    "min_rtt_ms": round(max(10, cell_rtt - cell_jitter_std), 1),
+                    "max_rtt_ms": round(cell_rtt + cell_jitter_std * 1.5, 1),
                     "jitter_ms": round(cell_jitter, 1),
-                    "loss_pct": round(0.03 * 100, 2),
+                    "loss_pct": round(cell_loss_rate * 100, 2),
                     "throughput_mbps": round(cell_pkts * 1380 * 8 / 1_000_000, 1),
                     "is_alive": True,
                     "quality_score": round(cell_score, 3),
                     "prediction": {
                         "delivery_probability": round(cell_delivery, 3),
                         "trend": "stable",
-                        "recommended_action": "use" if cell_delivery > 0.7 else "avoid",
+                        "recommended_action": cell_action,
                     },
                 },
             }
 
+            combined_mbps = round((sl_pkts + cell_pkts) * 1380 * 8 / 1_000_000, 1)
             total_received = pkt_sent[0] + pkt_sent[1]
-            combined_mbps = round(
-                (sl_pkts + cell_pkts) * 1380 * 8 / 1_000_000, 1
-            )
 
             sdn._state["metrics"] = {
                 "packets_sent_per_path": dict(pkt_sent),
                 "packets_received": total_received,
                 "fec_recoveries": fec_recoveries,
-                "duplicates_dropped": random.randint(0, 5),
-                "reorder_buffer_depth": random.randint(0, 4),
+                "duplicates_dropped": random.randint(0, 3),
+                "reorder_buffer_depth": random.randint(0, 8) if phase_tick > 30 else random.randint(0, 2),
                 "fec_mode": fec_mode,
-                "fec_overhead_pct": 25.0,
+                "fec_overhead_pct": {"xor": 25.0, "reed_solomon": 25.0, "replicate": 100.0}.get(fec_mode, 25.0),
                 "scheduler_mode": "ai",
                 "aggregate_throughput_mbps": combined_mbps,
-                "effective_loss_pct": 0.0,
+                "effective_loss_pct": round(effective_loss * 100, 2),
             }
 
-            decisions_total = pkt_sent[0] + pkt_sent[1]
-            sdn._state["scheduler"]["stats"]["decisions_total"] = decisions_total
-            sdn._state["scheduler"]["stats"]["decisions_by_reason"] = {
-                reason: decisions_total
-            }
+            sdn._state["scheduler"]["best_path"] = 1 if sl_action in ("avoid", "abandon") else 0
+            sdn._state["scheduler"]["stats"]["decisions_total"] = total_received
+            sdn._state["scheduler"]["stats"]["decisions_by_reason"] = dict(decisions_by_reason)
+            sdn._state["fec"]["current_mode"] = fec_mode
             sdn._state["fec"]["total_recoveries"] = fec_recoveries
+            sdn._state["fec"]["mode_changes"] = mode_changes
+            sdn._state["fec"]["overhead_pct"] = sdn._state["metrics"]["fec_overhead_pct"]
 
-            # Log some packets
+            # Log packets for the live stream
             for _ in range(min(5, sl_pkts)):
-                pkt_log.log(seq, 0, "data", 1380, sl_rtt_now, 0, 0, reason)
+                pkt_log.log(seq, 0, "data", 1380, sl_rtt, seq // 5, seq % 5, reason)
                 seq += 1
-            for _ in range(min(3, cell_pkts)):
-                pkt_log.log(seq, 1, "data", 1380, cell_rtt_now, 0, 0, reason)
+            for _ in range(min(5, cell_pkts)):
+                pkt_log.log(seq, 1, "data", 1380, cell_rtt, seq // 5, seq % 5, reason)
                 seq += 1
             if random.random() < 0.3:
-                pkt_log.log(seq, 1, "fec_parity", 1380, 0, seq // 5, 4, "")
+                pkt_log.log(seq, 1 if sl_share < 0.3 else 0, "fec_parity", 1380, 0, seq // 5, 4, "")
                 seq += 1
 
+            tick += 1
             await asyncio.sleep(1.0)
 
         except asyncio.CancelledError:

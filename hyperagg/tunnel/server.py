@@ -277,7 +277,7 @@ class TunnelServer:
         if pkt.fec_group_size > 0:
             recovered = self._fec.decode_packet(
                 pkt.fec_group_id, pkt.fec_index, pkt.fec_group_size,
-                pkt.is_fec_parity, payload if pkt.is_fec_parity else pkt.payload,
+                pkt.is_fec_parity, payload,
             )
             for _, rec_payload in recovered:
                 self.fec_recoveries += 1
@@ -366,14 +366,16 @@ class TunnelServer:
             global_seq=self._return_global_seq,
         )
 
-        # Encrypt
+        # Encrypt — set payload_len to encrypted size BEFORE building AAD
         if self._crypto:
+            from hyperagg.tunnel.crypto import TAG_SIZE
+            pkt.payload_len = len(pkt.payload) + TAG_SIZE
+            aad = pkt.header_bytes()
             encrypted = self._crypto.encrypt(
-                pkt.payload, pkt.header_bytes(),
+                pkt.payload, aad,
                 pkt.global_seq, pkt.path_id,
             )
             pkt.payload = encrypted
-            pkt.payload_len = len(encrypted)
 
         wire = pkt.serialize()
 

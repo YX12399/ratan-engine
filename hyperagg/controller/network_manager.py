@@ -159,6 +159,64 @@ class NetworkManager:
         except subprocess.CalledProcessError as e:
             logger.error(f"Policy routing setup failed: {e}")
 
+    def setup_lan_gateway(
+        self,
+        lan_interface: str,
+        lan_ip: str = "192.168.50.1",
+        lan_subnet: str = "192.168.50.0/24",
+        tun_name: str = "hagg0",
+    ) -> None:
+        """
+        Configure the Beelink/TP-Link as a LAN gateway so connected laptops
+        route through the HyperAgg tunnel.
+
+        Physical setup:
+            Laptop → (WiFi/eth) → Beelink LAN port → HyperAgg TUN → VPS → Internet
+
+        This sets up:
+            1. LAN interface IP assignment
+            2. IP forwarding
+            3. FORWARD rules: LAN ↔ TUN
+            4. MASQUERADE from LAN through TUN
+        """
+        try:
+            # Assign LAN IP if not already set
+            subprocess.run(
+                ["ip", "addr", "add", f"{lan_ip}/24", "dev", lan_interface],
+                capture_output=True,
+            )
+            subprocess.run(
+                ["ip", "link", "set", "dev", lan_interface, "up"],
+                capture_output=True,
+            )
+            logger.info(f"LAN interface {lan_interface} at {lan_ip}")
+
+            # Enable IP forwarding
+            subprocess.run(
+                ["sysctl", "-w", "net.ipv4.ip_forward=1"],
+                capture_output=True,
+            )
+
+            # FORWARD rules: allow LAN ↔ TUN traffic
+            for cmd in [
+                ["iptables", "-A", "FORWARD", "-i", lan_interface, "-o", tun_name, "-j", "ACCEPT"],
+                ["iptables", "-A", "FORWARD", "-i", tun_name, "-o", lan_interface,
+                 "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"],
+            ]:
+                subprocess.run(cmd, capture_output=True)
+
+            # NAT: masquerade LAN traffic going through TUN
+            subprocess.run(
+                ["iptables", "-t", "nat", "-A", "POSTROUTING",
+                 "-s", lan_subnet, "-o", tun_name, "-j", "MASQUERADE"],
+                capture_output=True,
+            )
+
+            logger.info(f"LAN gateway ready: {lan_subnet} → {tun_name}")
+
+        except Exception as e:
+            logger.error(f"LAN gateway setup failed: {e}")
+
     def get_all_interfaces(self) -> dict[str, InterfaceInfo]:
         return dict(self._interfaces)
 

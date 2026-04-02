@@ -144,8 +144,9 @@ class TunnelClient:
         self._sockets: dict[int, socket.socket] = {}
         self._path_names: dict[int, str] = {}
 
-        # TUN device (set externally)
+        # TUN device and packet logger (set externally)
         self.tun = None
+        self.packet_logger = None  # Set by main.py for dashboard telemetry
 
         # State
         self._running = False
@@ -293,14 +294,18 @@ class TunnelClient:
                         fec_group_size=fec_meta.get("fec_group_size", 0),
                     )
 
-                # Encrypt
+                # Encrypt — AAD must use the FINAL payload_len (encrypted size)
+                # so receiver's deserialized header matches what we authenticated.
                 if self._crypto:
+                    from hyperagg.tunnel.crypto import TAG_SIZE
+                    # Pre-compute encrypted length and set it BEFORE generating AAD
+                    pkt.payload_len = len(pkt.payload) + TAG_SIZE
+                    aad = pkt.header_bytes()
                     encrypted = self._crypto.encrypt(
-                        pkt.payload, pkt.header_bytes(),
+                        pkt.payload, aad,
                         pkt.global_seq, pkt.path_id,
                     )
                     pkt.payload = encrypted
-                    pkt.payload_len = len(encrypted)
 
                 # Send
                 wire = pkt.serialize()
@@ -313,6 +318,14 @@ class TunnelClient:
                         self.packets_sent_per_path.get(pid, 0) + 1
                     )
                     self._monitor.record_throughput(pid, len(wire))
+                    if self.packet_logger:
+                        ptype = "fec_parity" if fec_meta.get("is_parity") else "data"
+                        self.packet_logger.log(
+                            pkt.global_seq, pid, ptype, len(payload),
+                            fec_group_id=fec_meta.get("fec_group_id", 0),
+                            fec_index=fec_meta.get("fec_index", 0),
+                            scheduler_reason=decision.reason,
+                        )
                 except OSError as e:
                     logger.warning(f"Send failed on path {pid}: {e}")
 
@@ -382,15 +395,22 @@ class TunnelClient:
                 return
 
         # FEC decode (might recover missing packets)
+        # For data packets: feed decrypted payload for FEC grouping
+        # For parity packets: feed raw payload (parity is not encrypted separately)
         if pkt.fec_group_size > 0:
             recovered = self._fec.decode_packet(
                 pkt.fec_group_id, pkt.fec_index, pkt.fec_group_size,
-                pkt.is_fec_parity, payload if pkt.is_fec_parity else pkt.payload,
+                pkt.is_fec_parity, payload,
             )
-            for _, rec_payload in recovered:
+            for rec_idx, rec_payload in recovered:
                 self.fec_recoveries += 1
                 if self.tun and self.tun.is_open:
                     self.tun.write_packet_sync(rec_payload)
+                if self.packet_logger:
+                    self.packet_logger.log(
+                        pkt.global_seq, path_id, "recovered",
+                        len(rec_payload), fec_group_id=pkt.fec_group_id,
+                    )
 
         # If this is a parity-only packet, don't deliver to TUN
         if pkt.is_fec_parity:
