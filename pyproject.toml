@@ -1,0 +1,9 @@
+[project]
+name = "ratan-hyperagg"
+version = "2.0.0"
+description = "RATAN HyperAgg — Packet-Level Bonding Engine"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

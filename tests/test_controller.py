@@ -1,0 +1,194 @@
+"""Tests for SDN controller, network manager, QoS engine, and dashboard API."""
+import asyncio
+import json
+import pytest
+
+from hyperagg.controller.sdn_controller import SDNController
+from hyperagg.controller.network_manager import NetworkManager, InterfaceInfo
+from hyperagg.controller.qos_engine import QoSEngine
+from hyperagg.telemetry.packet_logger import PacketLogger
+
+
+class TestQoSEngine:
+    def test_classify_bulk_by_default(self, sample_config):
+        qos = QoSEngine(sample_config)
+        assert qos.classify(b"\x00" * 20) == "bulk"
+
+    def test_classify_realtime_udp(self):
+        import struct
+        config = {
+            "qos": {
+                "enabled": True,
+                "tiers": {"realtime": {"ports": "3478-3481", "fec_mode": "replicate"}},
+            }
+        }
+        qos = QoSEngine(config)
+        # Build fake UDP packet to port 3479
+        ip = bytearray(20)
+        ip[0] = 0x45  # IPv4, IHL=5
+        ip[9] = 17    # UDP
+        udp = struct.pack("!HH", 12345, 3479)
+        pkt = bytes(ip) + udp + b"\x00" * 4
+        assert qos.classify(pkt) == "realtime"
+
+    def test_get_fec_mode(self):
+        config = {
+            "qos": {
+                "enabled": True,
+                "tiers": {"streaming": {"ports": "5000-5010", "fec_mode": "reed_solomon"}},
+            }
+        }
+        qos = QoSEngine(config)
+        assert qos.get_fec_mode("streaming") == "reed_solomon"
+        assert qos.get_fec_mode("unknown") == "xor"  # default
+
+    def test_get_tier_info(self):
+        config = {
+            "qos": {
+                "enabled": True,
+                "tiers": {
+                    "realtime": {"ports": "3478-3481", "fec_mode": "replicate", "bandwidth_pct": 60},
+                },
+            }
+        }
+        qos = QoSEngine(config)
+        info = qos.get_tier_info()
+        assert "realtime" in info
+        assert info["realtime"]["fec_mode"] == "replicate"
+
+
+class TestNetworkManager:
+    def test_discover_interfaces_runs(self, sample_config):
+        import shutil
+        if not shutil.which("ip"):
+            pytest.skip("'ip' command not available in this environment")
+        nm = NetworkManager(sample_config)
+        ifaces = nm.discover_interfaces()
+        assert isinstance(ifaces, list)
+
+    def test_get_all_interfaces_empty_initially(self, sample_config):
+        nm = NetworkManager(sample_config)
+        assert nm.get_all_interfaces() == {}
+
+
+class TestSDNController:
+    def test_init(self, sample_config):
+        sdn = SDNController(sample_config, mode="client")
+        assert sdn._mode == "client"
+        assert sdn._running is False
+
+    def test_get_system_state_without_tunnel(self, sample_config):
+        sdn = SDNController(sample_config, mode="client")
+        state = sdn.get_system_state()
+        assert state["mode"] == "client"
+        assert "running" in state
+
+    def test_events(self, sample_config):
+        sdn = SDNController(sample_config)
+        sdn._emit_event("test", "hello")
+        events = sdn.get_events()
+        assert len(events) == 1
+        assert events[0]["category"] == "test"
+        assert events[0]["message"] == "hello"
+
+    def test_set_fec_mode(self, sample_config):
+        from hyperagg.tunnel.client import TunnelClient
+        sdn = SDNController(sample_config, mode="client")
+        client = TunnelClient(sample_config)
+        sdn.set_tunnel(client)
+        sdn.set_fec_mode("reed_solomon")
+        assert client._fec._mode_setting == "reed_solomon"
+
+
+class TestPacketLogger:
+    def test_log_and_retrieve(self):
+        pl = PacketLogger()
+        pl.log(1, 0, "data", 1400)
+        pl.log(2, 1, "fec_parity", 1400)
+        recent = pl.get_recent(10)
+        assert len(recent) == 2
+        assert recent[0]["global_seq"] == 1
+        assert recent[1]["packet_type"] == "fec_parity"
+
+    def test_stats(self):
+        pl = PacketLogger()
+        for i in range(10):
+            pl.log(i, 0, "data", 1400)
+        pl.log(10, 0, "recovered", 1400)
+        stats = pl.get_stats()
+        assert stats["data_packets"] == 10
+        assert stats["recovered_packets"] == 1
+        assert stats["total_logged"] == 11
+
+    def test_csv_export(self):
+        pl = PacketLogger()
+        pl.log(1, 0, "data", 100)
+        csv = pl.export_csv()
+        assert "global_seq" in csv  # header
+        assert "data" in csv        # row
+
+    def test_ring_buffer(self):
+        pl = PacketLogger(max_entries=5)
+        for i in range(10):
+            pl.log(i, 0, "data", 100)
+        assert pl._total_logged == 10
+        assert len(pl._log) == 5  # ring buffer kept only 5
+
+
+class TestDashboardAPI:
+    @pytest.fixture
+    def app(self, sample_config):
+        from hyperagg.dashboard.api import create_dashboard_app
+        sdn = SDNController(sample_config, mode="client")
+        sdn._emit_event("test", "startup")
+        pkt_log = PacketLogger()
+        pkt_log.log(1, 0, "data", 1400)
+        return create_dashboard_app(sdn, pkt_log)
+
+    @pytest.fixture
+    def client(self, app):
+        from starlette.testclient import TestClient
+        return TestClient(app)
+
+    def test_health(self, client):
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["engine"] == "hyperagg"
+
+    def test_state(self, client):
+        resp = client.get("/api/state")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "mode" in data
+
+    def test_events(self, client):
+        resp = client.get("/api/events")
+        assert resp.status_code == 200
+        events = resp.json()
+        assert len(events) >= 1
+
+    def test_packets(self, client):
+        resp = client.get("/api/packets")
+        assert resp.status_code == 200
+        pkts = resp.json()
+        assert len(pkts) >= 1
+
+    def test_packets_csv(self, client):
+        resp = client.get("/api/packets/csv")
+        assert resp.status_code == 200
+        assert "global_seq" in resp.text
+
+    def test_set_scheduler_mode(self, client):
+        resp = client.post("/api/scheduler/mode", json={"mode": "weighted"})
+        assert resp.status_code == 200
+
+    def test_set_fec_mode(self, client):
+        resp = client.post("/api/fec/mode", json={"mode": "xor"})
+        assert resp.status_code == 200
+
+    def test_dashboard_html_served(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "HyperAgg" in resp.text

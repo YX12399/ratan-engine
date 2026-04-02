@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RATAN HyperAgg Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--blue:#2563eb;--blue-light:#dbeafe;--green:#16a34a;--yellow:#ca8a04;--red:#dc2626;--gray-50:#f9fafb;--gray-100:#f3f4f6;--gray-200:#e5e7eb;--gray-300:#d1d5db;--gray-500:#6b7280;--gray-700:#374151;--gray-900:#111827;--sidebar-w:200px}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--gray-50);color:var(--gray-900);font-variant-numeric:tabular-nums;display:grid;grid-template-columns:var(--sidebar-w) 1fr;min-height:100vh}
+aside{background:#fff;border-right:1px solid var(--gray-200);padding:20px 0;display:flex;flex-direction:column;position:fixed;width:var(--sidebar-w);height:100vh;overflow-y:auto}
+aside .logo{padding:0 16px 20px;font-size:17px;font-weight:700;color:var(--blue);border-bottom:1px solid var(--gray-200)}
+aside .logo span{color:var(--gray-500);font-weight:400;font-size:12px;display:block;margin-top:2px}
+aside nav{padding:12px 0}
+aside nav a{display:block;padding:8px 16px;color:var(--gray-700);text-decoration:none;font-size:14px;border-left:3px solid transparent;cursor:pointer}
+aside nav a:hover{background:var(--gray-100)}
+aside nav a.active{border-left-color:var(--blue);color:var(--blue);background:var(--blue-light);font-weight:600}
+main{margin-left:var(--sidebar-w);padding:24px;min-width:0}
+.page{display:none}.page.active{display:block}
+.conn-badge{display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700;letter-spacing:.5px}
+.badge-ok{background:#dcfce7;color:var(--green)}.badge-degraded{background:#fef9c3;color:var(--yellow)}.badge-offline{background:#fee2e2;color:var(--red)}
+.card{background:#fff;border:1px solid var(--gray-200);border-radius:8px;padding:16px;margin-bottom:16px}
+.card h3{font-size:14px;color:var(--gray-500);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.metric-row{display:flex;justify-content:space-between;padding:4px 0;font-size:14px}
+.metric-row .label{color:var(--gray-500)}.metric-row .val{font-weight:600}
+.quality-bar{height:8px;border-radius:4px;background:var(--gray-200);margin-top:6px;overflow:hidden}
+.quality-bar-inner{height:100%;border-radius:4px;transition:width .3s}
+.pred{font-size:12px;color:var(--gray-500);margin-top:6px}
+.pred .trend-stable{color:var(--green)}.pred .trend-degrading{color:var(--red)}.pred .trend-improving{color:var(--blue)}
+.traffic-bar{height:6px;border-radius:3px;background:var(--gray-200);margin-top:6px}
+.traffic-bar-inner{height:100%;border-radius:3px;background:var(--blue);transition:width .3s}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:6px 8px;border-bottom:2px solid var(--gray-200);color:var(--gray-500);font-size:12px;text-transform:uppercase}
+td{padding:5px 8px;border-bottom:1px solid var(--gray-100)}
+tr.path-0 td:first-child{border-left:3px solid var(--blue)}
+tr.path-1 td:first-child{border-left:3px solid #8b5cf6}
+tr.fec-recovery{background:#f0fdf4}
+.big-num{font-size:40px;font-weight:700;color:var(--blue)}
+.big-label{font-size:13px;color:var(--gray-500);margin-top:2px}
+.event-item{padding:6px 0;border-bottom:1px solid var(--gray-100);font-size:13px}
+.event-item .ev-time{color:var(--gray-500);margin-right:8px;font-size:12px}
+.event-item .ev-cat{font-weight:600;margin-right:6px;text-transform:uppercase;font-size:11px;color:var(--blue)}
+.agg-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.agg-stat{text-align:center;padding:12px}.agg-stat .val{font-size:24px;font-weight:700;color:var(--gray-900)}.agg-stat .lbl{font-size:12px;color:var(--gray-500);margin-top:2px}
+select{padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:14px;background:#fff}
+button.btn{padding:6px 16px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-size:14px;cursor:pointer;font-weight:600}
+button.btn:hover{opacity:.9}
+.config-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.config-row label{width:120px;font-size:14px;color:var(--gray-700)}
+.waiting{color:var(--gray-500);font-style:italic;padding:20px 0}
+@media(max-width:900px){:root{--sidebar-w:160px}.grid-2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<aside>
+  <div class="logo">RATAN HyperAgg<span>Bonding Dashboard</span></div>
+  <nav id="nav">
+    <a data-page="aggregation" class="active">Aggregation</a>
+    <a data-page="paths">Paths</a>
+    <a data-page="fec">FEC</a>
+    <a data-page="scheduler">AI Scheduler</a>
+    <a data-page="events">Events</a>
+    <a data-page="config">Config</a>
+  </nav>
+  <div style="margin-top:auto;padding:12px 16px;font-size:11px;color:var(--gray-500)">
+    <span id="ws-status">WS: connecting...</span><br>
+    Uptime: <span id="uptime">--</span>
+  </div>
+</aside>
+
+<main>
+  <!-- AGGREGATION PAGE -->
+  <div id="page-aggregation" class="page active">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <h2>Aggregation Overview</h2>
+      <span id="conn-badge" class="conn-badge badge-offline">OFFLINE</span>
+    </div>
+    <div id="path-cards" class="grid-2"><div class="waiting">Waiting for data...</div></div>
+    <div class="card" style="margin-top:8px">
+      <h3>Aggregate Metrics</h3>
+      <div id="agg-stats" class="agg-stats"><div class="waiting">Waiting...</div></div>
+    </div>
+    <div class="card">
+      <h3>Live Packet Stream</h3>
+      <div style="max-height:340px;overflow-y:auto">
+        <table><thead><tr><th>Seq</th><th>Path</th><th>Type</th><th>Size</th><th>RTT</th><th>Status</th></tr></thead>
+        <tbody id="pkt-table"><tr><td colspan="6" class="waiting">Waiting...</td></tr></tbody></table>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Recent Events</h3>
+      <div id="event-log"><div class="waiting">Waiting...</div></div>
+    </div>
+  </div>
+
+  <!-- PATHS PAGE -->
+  <div id="page-paths" class="page">
+    <h2 style="margin-bottom:20px">Path Details</h2>
+    <div id="paths-detail"><div class="waiting">Waiting for data...</div></div>
+  </div>
+
+  <!-- FEC PAGE -->
+  <div id="page-fec" class="page">
+    <h2 style="margin-bottom:20px">FEC Dashboard</h2>
+    <div class="grid-2">
+      <div class="card"><h3>Current Mode</h3><div id="fec-mode" class="big-num">--</div></div>
+      <div class="card"><h3>Overhead</h3><div id="fec-overhead" class="big-num">--</div><div class="big-label">percent</div></div>
+    </div>
+    <div class="card"><h3>Total Recoveries</h3><div id="fec-recoveries" class="big-num">--</div><div class="big-label">packets recovered via FEC</div></div>
+    <div class="card"><h3>Mode Changes</h3><div id="fec-changes" class="big-num">--</div><div class="big-label">transitions since start</div></div>
+  </div>
+
+  <!-- AI SCHEDULER PAGE -->
+  <div id="page-scheduler" class="page">
+    <h2 style="margin-bottom:20px">AI Scheduler</h2>
+    <div class="grid-2">
+      <div class="card"><h3>Mode</h3><div id="sched-mode" class="big-num">--</div></div>
+      <div class="card"><h3>Best Path</h3><div id="sched-best" class="big-num">--</div></div>
+    </div>
+    <div class="card"><h3>Avg Decision Time</h3><div id="sched-time" class="big-num">--</div><div class="big-label">microseconds</div></div>
+    <div class="card">
+      <h3>Decision Distribution</h3>
+      <div id="sched-decisions"><div class="waiting">Waiting...</div></div>
+    </div>
+    <div class="card">
+      <h3>Path Utilization</h3>
+      <div id="sched-util"><div class="waiting">Waiting...</div></div>
+    </div>
+  </div>
+
+  <!-- EVENTS PAGE -->
+  <div id="page-events" class="page">
+    <h2 style="margin-bottom:20px">Event Log</h2>
+    <div id="events-full" class="card"><div class="waiting">Waiting for data...</div></div>
+  </div>
+
+  <!-- CONFIG PAGE -->
+  <div id="page-config" class="page">
+    <h2 style="margin-bottom:20px">Configuration</h2>
+    <div class="card">
+      <h3>Scheduler Mode</h3>
+      <div class="config-row">
+        <label>Mode</label>
+        <select id="cfg-sched"><option value="ai">AI</option><option value="round-robin">Round Robin</option><option value="weighted">Weighted</option><option value="primary-backup">Primary Backup</option></select>
+        <button class="btn" onclick="applyScheduler()">Apply</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>FEC Mode</h3>
+      <div class="config-row">
+        <label>Mode</label>
+        <select id="cfg-fec"><option value="xor">XOR</option><option value="reed_solomon">Reed-Solomon</option><option value="replicate">Replicate</option><option value="none">None</option><option value="auto">Auto</option></select>
+        <button class="btn" onclick="applyFec()">Apply</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Path Labels</h3>
+      <div class="config-row"><label>Path 0</label><input id="lbl-0" value="Starlink" style="padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:14px"></div>
+      <div class="config-row"><label>Path 1</label><input id="lbl-1" value="Cellular" style="padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:14px"></div>
+      <button class="btn" onclick="saveLabels()">Save Labels</button>
+    </div>
+  </div>
+</main>
+
+<script>
+const PATH_LABELS = {0: 'Starlink', 1: 'Cellular'};
+let state = null, ws = null, pollTimer = null;
+
+/* NAV */
+document.querySelectorAll('#nav a').forEach(a => {
+  a.addEventListener('click', () => {
+    document.querySelectorAll('#nav a').forEach(n => n.classList.remove('active'));
+    a.classList.add('active');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + a.dataset.page).classList.add('active');
+  });
+});
+
+/* WEBSOCKET */
+function connectWS() {
+  ws = new WebSocket('ws://' + location.host + '/ws');
+  ws.onopen = () => { document.getElementById('ws-status').textContent = 'WS: connected'; if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
+  ws.onmessage = e => { try { state = JSON.parse(e.data); render(); } catch (_) {} };
+  ws.onclose = () => { document.getElementById('ws-status').textContent = 'WS: disconnected'; startPolling(); setTimeout(connectWS, 3000); };
+  ws.onerror = () => { ws.close(); };
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    try {
+      const r = await fetch('/api/state');
+      if (r.ok) { state = await r.json(); render(); }
+    } catch (_) {}
+  }, 2000);
+}
+
+/* QUALITY COLOR */
+function qColor(s) { return s > 0.8 ? 'var(--green)' : s > 0.5 ? 'var(--yellow)' : 'var(--red)'; }
+function trendIcon(t) { return t === 'stable' ? '&#8594;' : t === 'degrading' ? '&#8600;' : t === 'improving' ? '&#8599;' : '?'; }
+function trendClass(t) { return 'trend-' + (t || 'stable'); }
+function pathLabel(id) { return PATH_LABELS[id] || ('Path ' + id); }
+function fmtTime(ts) { const d = new Date(ts * 1000); return d.toLocaleTimeString(); }
+
+/* RENDER */
+function render() {
+  if (!state) return;
+  const s = state;
+  document.getElementById('uptime').textContent = Math.floor(s.uptime_sec || 0) + 's';
+
+  // connection badge
+  const badge = document.getElementById('conn-badge');
+  if (!s.running) { badge.textContent = 'OFFLINE'; badge.className = 'conn-badge badge-offline'; }
+  else {
+    const paths = s.paths || {};
+    const allAlive = Object.values(paths).every(p => p.is_alive);
+    if (allAlive) { badge.textContent = 'AGGREGATING'; badge.className = 'conn-badge badge-ok'; }
+    else { badge.textContent = 'DEGRADED'; badge.className = 'conn-badge badge-degraded'; }
+  }
+
+  renderPathCards();
+  renderAggStats();
+  renderPackets();
+  renderEvents();
+  renderPathsDetail();
+  renderFec();
+  renderScheduler();
+}
+
+function renderPathCards() {
+  const paths = state.paths || {};
+  const sent = (state.metrics || {}).packets_sent_per_path || {};
+  const totalSent = Object.values(sent).reduce((a, b) => a + b, 0) || 1;
+  const el = document.getElementById('path-cards');
+  let h = '';
+  for (const [id, p] of Object.entries(paths)) {
+    const share = ((sent[id] || 0) / totalSent * 100).toFixed(1);
+    const pr = p.prediction || {};
+    h += `<div class="card">
+      <h3>Path ${id}: ${pathLabel(id)} ${p.is_alive ? '<span style="color:var(--green)">&#9679;</span>' : '<span style="color:var(--red)">&#9679;</span>'}</h3>
+      <div class="metric-row"><span class="label">RTT</span><span class="val">${p.avg_rtt_ms} ms</span></div>
+      <div class="metric-row"><span class="label">Loss</span><span class="val">${p.loss_pct}%</span></div>
+      <div class="metric-row"><span class="label">Jitter</span><span class="val">${p.jitter_ms} ms</span></div>
+      <div class="metric-row"><span class="label">Throughput</span><span class="val">${p.throughput_mbps} Mbps</span></div>
+      <div class="metric-row"><span class="label">Quality</span><span class="val" style="color:${qColor(p.quality_score)}">${(p.quality_score * 100).toFixed(0)}%</span></div>
+      <div class="quality-bar"><div class="quality-bar-inner" style="width:${p.quality_score * 100}%;background:${qColor(p.quality_score)}"></div></div>
+      <div class="pred">AI: ${(pr.delivery_probability * 100).toFixed(0)}% delivery <span class="${trendClass(pr.trend)}">${trendIcon(pr.trend)} ${pr.trend || ''}</span> &mdash; ${pr.recommended_action || ''}</div>
+      <div class="metric-row" style="margin-top:6px"><span class="label">Traffic share</span><span class="val">${share}%</span></div>
+      <div class="traffic-bar"><div class="traffic-bar-inner" style="width:${share}%"></div></div>
+    </div>`;
+  }
+  el.innerHTML = h || '<div class="waiting">No paths</div>';
+}
+
+function renderAggStats() {
+  const m = state.metrics || {}, ps = state.packet_stats || {};
+  const paths = state.paths || {};
+  const tp = Object.values(paths).reduce((a, p) => a + (p.throughput_mbps || 0), 0);
+  const effLoss = Object.values(paths).length ? (Object.values(paths).reduce((a, p) => a + (p.loss_pct || 0), 0) / Object.values(paths).length).toFixed(2) : '--';
+  document.getElementById('agg-stats').innerHTML = `
+    <div class="agg-stat"><div class="val">${tp.toFixed(1)}</div><div class="lbl">Combined Mbps</div></div>
+    <div class="agg-stat"><div class="val">${effLoss}%</div><div class="lbl">Effective Loss</div></div>
+    <div class="agg-stat"><div class="val">${m.fec_recoveries ?? '--'}</div><div class="lbl">FEC Recoveries</div></div>
+    <div class="agg-stat"><div class="val">${ps.current_pps ?? '--'}</div><div class="lbl">Packets/sec</div></div>
+    <div class="agg-stat"><div class="val">${m.scheduler_mode || '--'}</div><div class="lbl">Scheduler</div></div>
+    <div class="agg-stat"><div class="val">${m.fec_mode || '--'} ${m.fec_overhead_pct != null ? m.fec_overhead_pct + '%' : ''}</div><div class="lbl">FEC Mode + OH</div></div>`;
+}
+
+function renderPackets() {
+  const pkts = (state.recent_packets || []).slice(-20);
+  if (!pkts.length) { document.getElementById('pkt-table').innerHTML = '<tr><td colspan="6" class="waiting">No packets yet</td></tr>'; return; }
+  let h = '';
+  for (const p of pkts) {
+    const isFec = p.packet_type === 'fec' || p.packet_type === 'recovery';
+    h += `<tr class="path-${p.path_id}${isFec ? ' fec-recovery' : ''}">
+      <td>${p.global_seq}</td><td>${pathLabel(p.path_id)}</td><td>${p.packet_type}</td>
+      <td>${p.payload_len}B</td><td>${p.rtt_ms != null ? p.rtt_ms.toFixed(1) + 'ms' : '--'}</td>
+      <td>${isFec ? 'recovered' : 'ok'}</td></tr>`;
+  }
+  document.getElementById('pkt-table').innerHTML = h;
+}
+
+function renderEvents() {
+  const evts = (state.events || []).slice(-10);
+  const el = document.getElementById('event-log');
+  const full = document.getElementById('events-full');
+  if (!evts.length) { el.innerHTML = '<div class="waiting">No events</div>'; full.innerHTML = '<div class="waiting">No events</div>'; return; }
+  let h = '';
+  for (const e of evts) {
+    h += `<div class="event-item"><span class="ev-time">${fmtTime(e.timestamp)}</span><span class="ev-cat">${e.category}</span>${e.message}</div>`;
+  }
+  el.innerHTML = h;
+  full.innerHTML = h;
+}
+
+function renderPathsDetail() {
+  const paths = state.paths || {};
+  let h = '';
+  for (const [id, p] of Object.entries(paths)) {
+    const pr = p.prediction || {};
+    h += `<div class="card">
+      <h3>Path ${id}: ${pathLabel(id)} ${p.is_alive ? '<span style="color:var(--green)">&#9679; ALIVE</span>' : '<span style="color:var(--red)">&#9679; DOWN</span>'}</h3>
+      <div class="grid-2" style="margin-top:12px">
+        <div>
+          <div class="metric-row"><span class="label">Avg RTT</span><span class="val">${p.avg_rtt_ms} ms</span></div>
+          <div class="metric-row"><span class="label">Jitter</span><span class="val">${p.jitter_ms} ms</span></div>
+          <div class="metric-row"><span class="label">Loss</span><span class="val">${p.loss_pct}%</span></div>
+        </div>
+        <div>
+          <div class="metric-row"><span class="label">Throughput</span><span class="val">${p.throughput_mbps} Mbps</span></div>
+          <div class="metric-row"><span class="label">Quality Score</span><span class="val" style="color:${qColor(p.quality_score)}">${(p.quality_score * 100).toFixed(0)}%</span></div>
+          <div class="metric-row"><span class="label">Delivery Prob</span><span class="val">${(pr.delivery_probability * 100).toFixed(0)}%</span></div>
+        </div>
+      </div>
+      <div class="quality-bar" style="margin-top:12px"><div class="quality-bar-inner" style="width:${p.quality_score * 100}%;background:${qColor(p.quality_score)}"></div></div>
+      <div class="pred" style="margin-top:8px">Trend: <span class="${trendClass(pr.trend)}">${trendIcon(pr.trend)} ${pr.trend || ''}</span> &mdash; Action: <strong>${pr.recommended_action || '--'}</strong></div>
+    </div>`;
+  }
+  document.getElementById('paths-detail').innerHTML = h || '<div class="waiting">No paths</div>';
+}
+
+function renderFec() {
+  const f = state.fec || {};
+  document.getElementById('fec-mode').textContent = (f.current_mode || '--').toUpperCase();
+  document.getElementById('fec-overhead').textContent = f.overhead_pct != null ? f.overhead_pct + '%' : '--';
+  document.getElementById('fec-recoveries').textContent = f.total_recoveries ?? '--';
+  document.getElementById('fec-changes').textContent = f.mode_changes ?? '--';
+}
+
+function renderScheduler() {
+  const sc = state.scheduler || {};
+  const st = sc.stats || {};
+  document.getElementById('sched-mode').textContent = (sc.mode || '--').toUpperCase();
+  document.getElementById('sched-best').textContent = sc.best_path != null ? pathLabel(sc.best_path) : '--';
+  document.getElementById('sched-time').textContent = st.avg_decision_time_us != null ? st.avg_decision_time_us.toFixed(1) : '--';
+
+  const reasons = st.decisions_by_reason || {};
+  const total = st.decisions_total || 1;
+  let h = '';
+  for (const [r, c] of Object.entries(reasons)) {
+    const pct = (c / total * 100).toFixed(1);
+    h += `<div class="metric-row"><span class="label">${r}</span><span class="val">${c} (${pct}%)</span></div>`;
+  }
+  document.getElementById('sched-decisions').innerHTML = h || '<div class="waiting">No data</div>';
+
+  const sent = (state.metrics || {}).packets_sent_per_path || {};
+  const totalSent = Object.values(sent).reduce((a, b) => a + b, 0) || 1;
+  let u = '';
+  for (const [id, c] of Object.entries(sent)) {
+    const pct = (c / totalSent * 100).toFixed(1);
+    u += `<div class="metric-row"><span class="label">${pathLabel(id)}</span><span class="val">${pct}% (${c} pkts)</span></div>
+      <div class="traffic-bar" style="margin-bottom:8px"><div class="traffic-bar-inner" style="width:${pct}%"></div></div>`;
+  }
+  document.getElementById('sched-util').innerHTML = u || '<div class="waiting">No data</div>';
+}
+
+/* CONFIG ACTIONS */
+async function applyScheduler() {
+  const mode = document.getElementById('cfg-sched').value;
+  try { await fetch('/api/scheduler/mode', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode}) }); } catch (_) {}
+}
+async function applyFec() {
+  const mode = document.getElementById('cfg-fec').value;
+  try { await fetch('/api/fec/mode', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode}) }); } catch (_) {}
+}
+function saveLabels() {
+  PATH_LABELS[0] = document.getElementById('lbl-0').value || 'Path 0';
+  PATH_LABELS[1] = document.getElementById('lbl-1').value || 'Path 1';
+  if (state) render();
+}
+
+connectWS();
+</script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+vps:
+  host: "${HYPERAGG_VPS_HOST}"
+  tunnel_port: 9999
+  api_port: 9090
+  encryption_key: "${HYPERAGG_KEY}"
+  server_ip: "10.99.0.2"    # VPS-side TUN IP
+  client_ip: "10.99.0.1"    # Edge-side TUN IP
+
+interfaces:
+  wan_interfaces: []  # Auto-detected at runtime
+
+tunnel:
+  mtu: 1400
+  keepalive_interval_ms: 1000
+  sequence_window: 1024
+  handshake_timeout_sec: 10
+  reorder_timeout_ms: 100
+
+fec:
+  mode: "auto"  # auto | xor | reed_solomon | none
+  xor_group_size: 4
+  rs_data_shards: 8
+  rs_parity_shards: 2
+  replication_threshold: 0.15
+  group_timeout_ms: 500
+
+scheduler:
+  mode: "ai"  # ai | round_robin | weighted | replicate
+  probe_interval_ms: 100
+  history_window: 50
+  prediction_horizon_ms: 200
+  ewma_alpha: 0.3
+  latency_budget_ms: 150
+  jitter_weight: 0.3
+  loss_weight: 0.5
+  rtt_weight: 0.2
+
+qos:
+  enabled: true
+  tiers:
+    realtime:
+      mark: 1
+      bandwidth_pct: 60
+      ports: "3478-3481"
+      protocol: "udp"
+      fec_mode: "replicate"
+    streaming:
+      mark: 2
+      bandwidth_pct: 30
+      ports: "5000-5010"
+      fec_mode: "reed_solomon"
+    bulk:
+      mark: 3
+      bandwidth_pct: 10
+      fec_mode: "xor"
+
+gps:
+  enabled: false
+  device: "/dev/ttyUSB0"
+  baud: 9600
+
+testing:
+  iperf_server: "${HYPERAGG_VPS_HOST}"
+  iperf_port: 5201
+  ffmpeg_dest: "${HYPERAGG_VPS_HOST}:5000"
+  test_duration_sec: 60
+  baseline_settle_sec: 10
