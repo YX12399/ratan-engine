@@ -3,198 +3,485 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RATAN HyperAgg</title>
+<title>RATAN HyperAgg Dashboard</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--blue:#2563eb;--blue-light:#dbeafe;--green:#16a34a;--green-light:#dcfce7;--yellow:#ca8a04;--yellow-light:#fef9c3;--red:#dc2626;--red-light:#fee2e2;--g50:#f9fafb;--g100:#f3f4f6;--g200:#e5e7eb;--g300:#d1d5db;--g500:#6b7280;--g700:#374151;--g900:#111827}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--g50);color:var(--g900);font-variant-numeric:tabular-nums}
-header{background:#fff;border-bottom:1px solid var(--g200);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between}
-.logo{font-weight:700;font-size:17px;color:var(--blue)}
-.logo small{font-weight:400;color:var(--g500);font-size:12px;margin-left:8px}
-.badge{padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;letter-spacing:.3px}
-.badge-ok{background:var(--green-light);color:var(--green)}.badge-warn{background:var(--yellow-light);color:var(--yellow)}.badge-off{background:var(--g100);color:var(--g500)}
-nav{display:flex;gap:0;margin:0 24px}
-nav button{background:none;border:none;padding:10px 20px;font-size:14px;color:var(--g500);cursor:pointer;border-bottom:2px solid transparent;font-weight:500}
+:root{--blue:#2563eb;--blue-light:#dbeafe;--blue-50:#eff6ff;--green:#16a34a;--green-light:#dcfce7;
+--yellow:#ca8a04;--yellow-light:#fef9c3;--red:#dc2626;--red-light:#fee2e2;--purple:#7c3aed;
+--g50:#f9fafb;--g100:#f3f4f6;--g200:#e5e7eb;--g300:#d1d5db;--g500:#6b7280;--g700:#374151;--g900:#111827}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--g50);
+color:var(--g900);font-variant-numeric:tabular-nums;min-height:100vh}
+header{background:#fff;border-bottom:1px solid var(--g200);padding:0 24px;display:flex;align-items:center;height:56px;gap:32px}
+header .logo{font-size:17px;font-weight:700;color:var(--blue);white-space:nowrap}
+header .logo span{color:var(--g500);font-weight:400;font-size:12px;margin-left:8px}
+nav{display:flex;gap:4px;height:100%}
+nav button{background:none;border:none;padding:0 16px;font-size:14px;font-weight:500;color:var(--g500);
+cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
 nav button:hover{color:var(--g700)}
 nav button.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
-.wrap{max-width:1200px;margin:0 auto;padding:20px 24px}
-.tab{display:none}.tab.active{display:block}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.status-dot.ok{background:var(--green)}.status-dot.off{background:var(--g300)}
+main{padding:24px;max-width:1400px;margin:0 auto}
+.page{display:none}.page.active{display:block}
 .card{background:#fff;border:1px solid var(--g200);border-radius:8px;padding:16px;margin-bottom:16px}
-.card h3{font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:var(--g500);margin-bottom:10px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.metric-card{background:#fff;border:1px solid var(--g200);border-radius:8px;padding:14px;text-align:center}
-.metric-card .val{font-size:28px;font-weight:700;color:var(--g900)}
-.metric-card .lbl{font-size:11px;color:var(--g500);margin-top:2px;text-transform:uppercase}
-.row{display:flex;justify-content:space-between;padding:3px 0;font-size:13px}
-.row .k{color:var(--g500)}.row .v{font-weight:600}
-.bar{height:7px;background:var(--g100);border-radius:4px;margin-top:6px;overflow:hidden}
-.bar-fill{height:100%;border-radius:4px;transition:width .4s}
-.pred{font-size:11px;color:var(--g500);margin-top:4px}
-.trend-stable{color:var(--green)}.trend-degrading{color:var(--red)}.trend-improving{color:var(--blue)}
-table{width:100%;font-size:12px;border-collapse:collapse}
-th{text-align:left;padding:6px 8px;background:var(--g50);color:var(--g500);font-weight:600;border-bottom:1px solid var(--g200)}
+.card h3{font-size:13px;color:var(--g500);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.metric-row{display:flex;justify-content:space-between;padding:4px 0;font-size:14px}
+.metric-row .label{color:var(--g500)}.metric-row .val{font-weight:600}
+.big-num{font-size:28px;font-weight:700;color:var(--g900)}.big-num small{font-size:13px;color:var(--g500);font-weight:400}
+.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;letter-spacing:.3px}
+.badge-green{background:var(--green-light);color:var(--green)}
+.badge-yellow{background:var(--yellow-light);color:var(--yellow)}
+.badge-gray{background:var(--g100);color:var(--g500)}
+.badge-red{background:var(--red-light);color:var(--red)}
+.quality-bar{height:8px;border-radius:4px;background:var(--g200);margin-top:6px;overflow:hidden}
+.quality-bar-inner{height:100%;border-radius:4px;transition:width .3s}
+.share-bar{height:6px;border-radius:3px;background:var(--g200);margin-top:4px;overflow:hidden;display:flex}
+.share-bar div{height:100%;transition:width .3s}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:6px 8px;border-bottom:2px solid var(--g200);color:var(--g500);font-weight:600;font-size:12px;text-transform:uppercase}
 td{padding:5px 8px;border-bottom:1px solid var(--g100)}
-.p0{color:var(--blue)}.p1{color:#7c3aed}
-.recovered{background:var(--green-light)}
-.evt{font-size:12px;padding:4px 0;border-bottom:1px solid var(--g100);color:var(--g700)}
-.evt .t{color:var(--g500);margin-right:8px}
-.evt .cat{font-weight:600;margin-right:4px}
-select,input[type=text]{padding:6px 10px;border:1px solid var(--g300);border-radius:6px;font-size:13px}
-button.btn{padding:6px 14px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:500}
-.btn-blue{background:var(--blue);color:#fff}.btn-blue:hover{opacity:.9}
-.btn-gray{background:var(--g200);color:var(--g700)}.btn-gray:hover{background:var(--g300)}
-.btn-green{background:var(--green);color:#fff}
-.btn-red{background:var(--red);color:#fff}
-.chat-box{border:1px solid var(--g200);border-radius:8px;height:300px;overflow-y:auto;padding:12px;background:#fff;margin-bottom:8px}
+tr.recovered td{background:var(--green-light)}
+tr.path-0 td:nth-child(2){color:var(--blue);font-weight:600}
+tr.path-1 td:nth-child(2){color:var(--purple);font-weight:600}
+.trend-stable{color:var(--green)}.trend-degrading{color:var(--red)}.trend-improving{color:var(--blue)}
+.pred{font-size:12px;color:var(--g500);margin-top:6px}
+.cmd-box{background:var(--g900);color:#e5e7eb;padding:12px 16px;border-radius:6px;font-family:"SF Mono",Monaco,Consolas,monospace;
+font-size:13px;overflow-x:auto;position:relative;line-height:1.6}
+.cmd-box .copy-btn{position:absolute;top:8px;right:8px;background:var(--g700);color:#fff;border:none;
+padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer}
+.cmd-box .copy-btn:hover{background:var(--g500)}
+button.primary{background:var(--blue);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;
+font-weight:600;cursor:pointer;transition:background .15s}
+button.primary:hover{background:#1d4ed8}
+button.secondary{background:var(--g100);color:var(--g700);border:1px solid var(--g200);padding:8px 16px;
+border-radius:6px;font-size:13px;font-weight:500;cursor:pointer}
+button.secondary:hover{background:var(--g200)}
+button.danger{background:var(--red);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+select,input[type="text"]{padding:7px 10px;border:1px solid var(--g200);border-radius:6px;font-size:13px;
+background:#fff;color:var(--g900);font-family:inherit}
+select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-light)}
+.collapsible summary{cursor:pointer;font-weight:600;font-size:14px;padding:8px 0;color:var(--g700);list-style:none;display:flex;align-items:center;gap:8px}
+.collapsible summary::before{content:"\25B6";font-size:10px;transition:transform .15s}
+.collapsible[open] summary::before{transform:rotate(90deg)}
+.collapsible .inner{padding:12px 0 8px}
+.chat-area{height:280px;overflow-y:auto;border:1px solid var(--g200);border-radius:6px;padding:12px;margin-bottom:12px;background:var(--g50)}
 .chat-msg{margin-bottom:10px;font-size:13px;line-height:1.5}
-.chat-user{color:var(--blue);font-weight:600}.chat-ai{color:var(--g700)}
-.chat-input{display:flex;gap:8px}
-.chat-input input{flex:1}
-.apply-btn{display:inline-block;margin:4px 4px 4px 0;padding:3px 10px;background:var(--green-light);color:var(--green);border:1px solid var(--green);border-radius:4px;font-size:11px;cursor:pointer}
-.copy-box{position:relative;background:var(--g900);color:#10b981;padding:12px 48px 12px 16px;border-radius:6px;font-family:monospace;font-size:13px;overflow-x:auto}
-.copy-btn{position:absolute;right:8px;top:8px;padding:4px 10px;background:var(--g700);color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer}
-.waiting{color:var(--g500);font-style:italic}
-@media(max-width:900px){.grid2,.grid4{grid-template-columns:1fr}}
+.chat-msg.user{text-align:right}.chat-msg.user .bubble{background:var(--blue);color:#fff;display:inline-block;padding:6px 12px;border-radius:12px 12px 2px 12px;max-width:80%}
+.chat-msg.ai .bubble{background:#fff;border:1px solid var(--g200);display:inline-block;padding:6px 12px;border-radius:12px 12px 12px 2px;max-width:80%;text-align:left}
+.chat-input-row{display:flex;gap:8px}
+.chat-input-row input{flex:1}
+.event-log{max-height:200px;overflow-y:auto;font-size:13px}
+.event-log .ev{padding:4px 0;border-bottom:1px solid var(--g100);display:flex;gap:12px}
+.event-log .ev-time{color:var(--g500);white-space:nowrap;min-width:70px}
+.event-log .ev-cat{font-weight:600;min-width:70px;color:var(--blue)}
+.waiting{color:var(--g500);font-style:italic;padding:20px;text-align:center}
+.form-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.form-row label{font-size:13px;color:var(--g500);min-width:80px}
+.test-active{background:var(--blue-50);border:1px solid var(--blue);border-radius:6px;padding:12px;margin:12px 0;display:flex;align-items:center;gap:16px;font-size:14px}
+.suggested-change{background:var(--yellow-light);border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin:4px 0;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+@media(max-width:900px){.grid-4{grid-template-columns:1fr 1fr}.grid-2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <header>
-  <div style="display:flex;align-items:center;gap:16px">
-    <div class="logo">RATAN HyperAgg<small>v2</small></div>
-    <nav>
-      <button class="active" onclick="showTab('connect')">Connect</button>
-      <button onclick="showTab('monitor')">Monitor</button>
-      <button onclick="showTab('tune')">Tune</button>
-      <button onclick="showTab('analyze')">Analyze</button>
-    </nav>
-  </div>
-  <div id="status-badge" class="badge badge-off">Waiting...</div>
+<div class="logo">RATAN HyperAgg<span>Multi-Path Aggregation</span></div>
+<nav id="nav">
+<button data-tab="connect">Connect</button>
+<button data-tab="monitor" class="active">Monitor</button>
+<button data-tab="tune">Tune</button>
+<button data-tab="analyze">Analyze</button>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--g500)">
+<span id="hdr-mode">--</span>
+<span class="status-dot off" id="hdr-dot"></span>
+</div>
 </header>
-<div class="wrap">
+<main>
 <!-- CONNECT -->
-<div id="tab-connect" class="tab active">
-  <div class="card">
-    <h3>System Status</h3>
-    <div class="row"><span class="k">Mode</span><span class="v" id="sys-mode">--</span></div>
-    <div class="row"><span class="k">Uptime</span><span class="v" id="sys-uptime">--</span></div>
-    <div class="row"><span class="k">FEC Mode</span><span class="v" id="sys-fec">--</span></div>
-    <div class="row"><span class="k">Scheduler</span><span class="v" id="sys-sched">--</span></div>
-  </div>
-  <div class="card">
-    <h3>Connect a Device</h3>
-    <p style="font-size:13px;color:var(--g500);margin-bottom:10px">Run this on your edge node (Beelink/laptop) to start bonding:</p>
-    <div class="copy-box" id="connect-cmd">sudo python -m hyperagg --mode client --vps-host <span id="vps-ip"></span> --interfaces eth1 usb0<button class="copy-btn" onclick="copyCmd()">Copy</button></div>
-  </div>
+<div class="page" id="page-connect">
+<div class="grid-2">
+<div class="card">
+<h3>VPS Status</h3>
+<div id="conn-status"><p class="waiting">Waiting...</p></div>
+</div>
+<div class="card">
+<h3>Connected Clients</h3>
+<div id="conn-clients"><p class="waiting">Waiting...</p></div>
+</div>
+</div>
+<div class="card">
+<h3>Connect a Device</h3>
+<p style="font-size:13px;color:var(--g500);margin-bottom:10px">Run this on the client device to connect:</p>
+<div class="cmd-box" id="conn-cmd">
+<button class="copy-btn" onclick="copyCmd()">Copy</button>
+<code id="conn-cmd-text"></code>
+</div>
+</div>
 </div>
 <!-- MONITOR -->
-<div id="tab-monitor" class="tab">
-  <div class="grid4" id="top-metrics">
-    <div class="metric-card"><div class="val" id="m-tp">--</div><div class="lbl">Throughput Mbps</div></div>
-    <div class="metric-card"><div class="val" id="m-loss">--</div><div class="lbl">Effective Loss %</div></div>
-    <div class="metric-card"><div class="val" id="m-paths">--</div><div class="lbl">Active Paths</div></div>
-    <div class="metric-card"><div class="val" id="m-fec">--</div><div class="lbl">FEC Recoveries</div></div>
-  </div>
-  <div class="grid2" id="path-cards"></div>
-  <div class="card"><h3>Live Packets</h3><table><thead><tr><th>Seq</th><th>Path</th><th>Type</th><th>Size</th><th>RTT</th></tr></thead><tbody id="pkt-tb"></tbody></table></div>
-  <div class="card"><h3>Events</h3><div id="evt-log"><span class="waiting">Waiting...</span></div></div>
+<div class="page active" id="page-monitor">
+<div class="grid-4" id="mon-top">
+<div class="card"><h3>Combined Throughput</h3><div class="big-num" id="m-throughput">--<small> Mbps</small></div></div>
+<div class="card"><h3>Effective Loss</h3><div class="big-num" id="m-loss">--<small> %</small></div></div>
+<div class="card"><h3>Active Paths</h3><div class="big-num" id="m-paths">--</div></div>
+<div class="card"><h3>FEC Recoveries</h3><div class="big-num" id="m-fec">--</div></div>
+</div>
+<div class="grid-2" id="mon-paths"><p class="waiting">Waiting for path data...</p></div>
+<div class="grid-2">
+<div class="card">
+<h3>Live Packet Stream</h3>
+<div style="max-height:340px;overflow-y:auto">
+<table><thead><tr><th>Seq</th><th>Path</th><th>Type</th><th>Size</th><th>RTT</th></tr></thead>
+<tbody id="pkt-body"><tr><td colspan="5" class="waiting">Waiting...</td></tr></tbody></table>
+</div>
+</div>
+<div class="card">
+<h3>Event Log</h3>
+<div class="event-log" id="event-log"><p class="waiting">Waiting...</p></div>
+</div>
+</div>
 </div>
 <!-- TUNE -->
-<div id="tab-tune" class="tab">
-  <div class="card"><h3>Scheduler</h3><div style="display:flex;gap:8px;align-items:center">
-    <select id="cfg-s"><option value="ai">AI</option><option value="weighted">Weighted</option><option value="round_robin">Round Robin</option><option value="replicate">Replicate</option></select>
-    <button class="btn btn-blue" onclick="post('/api/scheduler/mode',{mode:qs('#cfg-s').value})">Apply</button></div></div>
-  <div class="card"><h3>FEC</h3><div style="display:flex;gap:8px;align-items:center">
-    <select id="cfg-f"><option value="auto">Auto</option><option value="xor">XOR</option><option value="reed_solomon">Reed-Solomon</option><option value="replicate">Replicate</option><option value="none">None</option></select>
-    <button class="btn btn-blue" onclick="post('/api/fec/mode',{mode:qs('#cfg-f').value})">Apply</button></div></div>
-  <div class="card"><h3>Path Control</h3><div style="display:flex;gap:8px;flex-wrap:wrap" id="path-btns"></div></div>
-  <div class="card"><h3>Path Labels</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <label style="font-size:13px">Path 0:</label><input type="text" id="l0" style="width:120px">
-    <label style="font-size:13px">Path 1:</label><input type="text" id="l1" style="width:120px">
-    <button class="btn btn-gray" onclick="saveLbl()">Save</button></div></div>
+<div class="page" id="page-tune">
+<div class="card">
+<details class="collapsible" open>
+<summary>Scheduler</summary>
+<div class="inner form-row">
+<label>Mode</label>
+<select id="tune-sched"><option value="ai">AI</option><option value="weighted">Weighted</option>
+<option value="round_robin">Round Robin</option><option value="replicate">Replicate</option></select>
+<button class="primary" onclick="setScheduler()">Apply</button>
+<span id="tune-sched-ok" style="color:var(--green);font-size:12px"></span>
+</div>
+</details>
+<details class="collapsible" open>
+<summary>FEC</summary>
+<div class="inner form-row">
+<label>Mode</label>
+<select id="tune-fec"><option value="auto">Auto</option><option value="xor">XOR</option>
+<option value="reed_solomon">Reed-Solomon</option><option value="replicate">Replicate</option>
+<option value="none">None</option></select>
+<button class="primary" onclick="setFec()">Apply</button>
+<span id="tune-fec-ok" style="color:var(--green);font-size:12px"></span>
+</div>
+</details>
+<details class="collapsible" open>
+<summary>Path Control</summary>
+<div class="inner form-row">
+<button class="secondary" onclick="forcePath(0)">Force Path 0</button>
+<button class="secondary" onclick="forcePath(1)">Force Path 1</button>
+<button class="danger" onclick="releasePath()">Release</button>
+<span id="tune-path-ok" style="color:var(--green);font-size:12px"></span>
+</div>
+</details>
+<details class="collapsible" open>
+<summary>Path Labels</summary>
+<div class="inner">
+<div class="form-row">
+<label>Path 0</label>
+<input type="text" id="label-0" placeholder="Starlink" style="width:180px">
+</div>
+<div class="form-row">
+<label>Path 1</label>
+<input type="text" id="label-1" placeholder="Cellular" style="width:180px">
+</div>
+<button class="secondary" onclick="saveLabels()" style="margin-top:4px">Save Labels</button>
+</div>
+</details>
+</div>
 </div>
 <!-- ANALYZE -->
-<div id="tab-analyze" class="tab">
-  <div class="card"><h3>AI Network Analyst</h3>
-    <div id="ai-note" style="font-size:12px;color:var(--g500);margin-bottom:8px"></div>
-    <div class="chat-box" id="chat"></div>
-    <div class="chat-input"><input type="text" id="ci" placeholder="Ask about your network..." onkeydown="if(event.key==='Enter')sendAI()">
-    <button class="btn btn-blue" onclick="sendAI()">Send</button></div></div>
-  <div class="card"><h3>Test Sessions</h3>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-      <input type="text" id="tn" placeholder="Test name" style="width:150px">
-      <select id="td"><option value="0.5">30s</option><option value="1" selected>1m</option><option value="5">5m</option></select>
-      <button class="btn btn-green" onclick="startTest()">Start</button>
-      <button class="btn btn-red" onclick="post('/api/tests/stop',{})">Stop</button></div>
-    <div id="at-info" style="font-size:13px;margin-bottom:8px"></div>
-    <div id="t-hist"></div></div>
-  <div class="card"><h3>Export</h3><button class="btn btn-gray" onclick="window.open('/api/packets/csv')">Download Packet CSV</button></div>
+<div class="page" id="page-analyze">
+<div class="grid-2">
+<div class="card">
+<h3>AI Chat</h3>
+<div id="ai-disabled" style="display:none"><p class="waiting">Set ANTHROPIC_API_KEY to enable AI analysis</p></div>
+<div id="ai-chat-wrap">
+<div class="chat-area" id="chat-area"></div>
+<div class="chat-input-row">
+<input type="text" id="chat-input" placeholder="Ask about network performance...">
+<button class="primary" onclick="sendChat()">Send</button>
 </div>
 </div>
+</div>
+<div class="card">
+<h3>Test Sessions</h3>
+<div class="form-row">
+<input type="text" id="test-name" placeholder="Test name" style="width:160px">
+<select id="test-dur"><option value="30">30s</option><option value="60">1m</option>
+<option value="300">5m</option><option value="600">10m</option></select>
+<button class="primary" onclick="startTest()">Start Test</button>
+</div>
+<div id="test-active-box"></div>
+<div style="margin-top:12px">
+<h3>History</h3>
+<div id="test-history"><p class="waiting">No tests yet</p></div>
+</div>
+</div>
+</div>
+<div class="card">
+<h3>Export</h3>
+<button class="secondary" onclick="location.href='/api/packets/csv'">Download Packet CSV</button>
+</div>
+</div>
+</main>
 <script>
-const PL={};let S=null,ws=null;
-const qs=s=>document.querySelector(s);
-function post(u,b){fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})}
-function loadLbl(){PL[0]=localStorage.getItem('pl0')||'Starlink';PL[1]=localStorage.getItem('pl1')||'Cellular';qs('#l0').value=PL[0];qs('#l1').value=PL[1]}
-function saveLbl(){PL[0]=qs('#l0').value||'Starlink';PL[1]=qs('#l1').value||'Cellular';localStorage.setItem('pl0',PL[0]);localStorage.setItem('pl1',PL[1]);if(S)render()}
-function pl(id){return PL[id]||PL[+id]||('Path '+id)}
-function showTab(n){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
-  qs('#tab-'+n).classList.add('active');document.querySelector(`nav button[onclick*="${n}"]`).classList.add('active')}
-function connectWS(){try{ws=new WebSocket(`ws://${location.host}/ws`);ws.onmessage=e=>{S=JSON.parse(e.data);render()};ws.onclose=()=>setTimeout(connectWS,3000);ws.onerror=()=>{ws.close();poll()}}catch(_){poll()}}
-function poll(){fetch('/api/state').then(r=>r.json()).then(d=>{S=d;render()}).catch(()=>{});setTimeout(poll,2000)}
-function render(){
-  if(!S)return;const m=S.metrics||{},p=S.paths||{},sc=S.scheduler||{},f=S.fec||{};
-  const alive=Object.values(p).filter(x=>x.is_alive).length,total=Object.keys(p).length;
-  const b=qs('#status-badge');
-  if(!total){b.className='badge badge-off';b.textContent='No Paths'}
-  else if(alive===total){b.className='badge badge-ok';b.textContent=`AGGREGATING (${alive} paths)`}
-  else if(alive>0){b.className='badge badge-warn';b.textContent=`DEGRADED (${alive}/${total})`}
-  else{b.className='badge badge-off';b.textContent='OFFLINE'}
-  qs('#sys-mode').textContent=S.mode||'--';qs('#sys-uptime').textContent=S.uptime_sec?Math.round(S.uptime_sec)+'s':'--';
-  qs('#sys-fec').textContent=f.current_mode||m.fec_mode||'--';qs('#sys-sched').textContent=sc.mode||m.scheduler_mode||'--';
-  qs('#vps-ip').textContent=location.hostname;
-  qs('#m-tp').textContent=m.aggregate_throughput_mbps??'--';qs('#m-loss').textContent=m.effective_loss_pct??'--';
-  qs('#m-paths').textContent=alive;qs('#m-fec').textContent=f.total_recoveries??m.fec_recoveries??0;
-  let pc='';
-  for(const[id,d]of Object.entries(p)){const pr=d.prediction||{},s=d.quality_score||0;
-    const col=s>0.8?'var(--green)':s>0.5?'var(--yellow)':'var(--red)';
-    const sent=(m.packets_sent_per_path||{})[id]||0,ts=Object.values(m.packets_sent_per_path||{}).reduce((a,b)=>a+b,0)||1;
-    pc+=`<div class="card"><h3 style="display:flex;justify-content:space-between"><span>${pl(id)}</span><span style="font-size:11px;color:${d.is_alive?'var(--green)':'var(--red)'}">${d.is_alive?'UP':'DOWN'}</span></h3>
-    <div class="row"><span class="k">RTT</span><span class="v">${d.avg_rtt_ms?.toFixed(1)||'--'}ms</span></div>
-    <div class="row"><span class="k">Loss</span><span class="v">${d.loss_pct?.toFixed(1)||'--'}%</span></div>
-    <div class="row"><span class="k">Jitter</span><span class="v">${d.jitter_ms?.toFixed(1)||'--'}ms</span></div>
-    <div class="row"><span class="k">Throughput</span><span class="v">${d.throughput_mbps?.toFixed(1)||'--'} Mbps</span></div>
-    <div class="row"><span class="k">Score</span><span class="v" style="color:${col}">${s.toFixed(3)}</span></div>
-    <div class="bar"><div class="bar-fill" style="width:${(s*100).toFixed(0)}%;background:${col}"></div></div>
-    <div class="pred">Delivery: ${pr.delivery_probability?((pr.delivery_probability*100).toFixed(0)+'%'):'--'} | <span class="trend-${pr.trend||'stable'}">${pr.trend||'--'}</span> | ${pr.recommended_action||'--'}</div>
-    <div class="row" style="margin-top:4px"><span class="k">Traffic</span><span class="v">${((sent/ts)*100).toFixed(0)}%</span></div></div>`}
-  qs('#path-cards').innerHTML=pc;
-  const pkts=S.recent_packets||[];let pt='';
-  for(const k of pkts.slice(-15)){pt+=`<tr class="${k.packet_type==='recovered'?'recovered':''}"><td>${k.global_seq}</td><td class="p${k.path_id}">${pl(k.path_id)}</td><td>${k.packet_type}</td><td>${k.payload_len}B</td><td>${k.rtt_ms?k.rtt_ms.toFixed(1)+'ms':'--'}</td></tr>`}
-  qs('#pkt-tb').innerHTML=pt||'<tr><td colspan="5" class="waiting">Waiting...</td></tr>';
-  const evts=S.events||[];let el='';
-  for(const e of evts.slice(-8)){el+=`<div class="evt"><span class="t">${new Date(e.timestamp*1000).toLocaleTimeString()}</span><span class="cat">[${e.category}]</span>${e.message}</div>`}
-  qs('#evt-log').innerHTML=el||'<span class="waiting">Waiting...</span>';
-  let pb='';for(const id of Object.keys(p))pb+=`<button class="btn btn-blue" onclick="post('/api/force-path',{path_id:${id}})">${pl(id)}</button>`;
-  pb+='<button class="btn btn-gray" onclick="post(\'/api/release-path\',{})">Release</button>';qs('#path-btns').innerHTML=pb;
-  qs('#ai-note').textContent=S.ai_enabled?'AI powered by Claude':'Set ANTHROPIC_API_KEY to enable AI';
-  const at=S.active_test;qs('#at-info').innerHTML=at?`<span style="color:var(--green)">Running:</span> ${at.name} (${at.elapsed_sec?.toFixed(0)||0}s / ${at.duration_target_sec}s)`:'';
+(function(){
+"use strict";
+var S=null,ws=null,pollTimer=null,pathLabels={0:"Starlink",1:"Cellular"},chatMsgs=[];
+var $=function(id){return document.getElementById(id)};
+
+// Tabs
+document.querySelectorAll("#nav button").forEach(function(b){
+  b.addEventListener("click",function(){
+    document.querySelectorAll("#nav button").forEach(function(x){x.classList.remove("active")});
+    document.querySelectorAll(".page").forEach(function(x){x.classList.remove("active")});
+    b.classList.add("active");
+    $("page-"+b.dataset.tab).classList.add("active");
+    if(b.dataset.tab==="analyze") loadTests();
+  });
+});
+
+// Labels from localStorage
+try{var stored=JSON.parse(localStorage.getItem("pathLabels"));if(stored){pathLabels=stored}}catch(e){}
+$("label-0").value=pathLabels[0]||"";
+$("label-1").value=pathLabels[1]||"";
+function saveLabels(){
+  pathLabels[0]=$("label-0").value||"Starlink";
+  pathLabels[1]=$("label-1").value||"Cellular";
+  localStorage.setItem("pathLabels",JSON.stringify(pathLabels));
+  if(S) render(S);
 }
-function copyCmd(){navigator.clipboard.writeText(qs('#connect-cmd').textContent.replace('Copy','')).then(()=>{const b=qs('.copy-btn');b.textContent='Copied!';setTimeout(()=>b.textContent='Copy',1500)})}
-async function sendAI(){const inp=qs('#ci'),msg=inp.value.trim();if(!msg)return;inp.value='';const box=qs('#chat');
-  box.innerHTML+=`<div class="chat-msg chat-user">You: ${msg}</div>`;box.scrollTop=box.scrollHeight;
-  try{const r=await fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});const d=await r.json();
-    let h=`<div class="chat-msg chat-ai">${d.analysis.replace(/\n/g,'<br>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')}</div>`;
-    if(d.suggested_changes?.length)for(const c of d.suggested_changes)h+=`<div class="apply-btn" onclick="post('/api/${c.action.replace('set_','').replace('_','/')
-      .replace('scheduler','scheduler/mode').replace('fec','fec/mode')}',{mode:'${c.value}'})">${c.action}: ${c.value}</div>`;
-    box.innerHTML+=h;box.scrollTop=box.scrollHeight}catch(e){box.innerHTML+=`<div style="color:var(--red)">Error: ${e}</div>`}}
-async function startTest(){const n=qs('#tn').value||'Test '+new Date().toLocaleTimeString();
-  post('/api/tests/start',{name:n,duration_minutes:parseFloat(qs('#td').value)});setTimeout(loadTests,1000)}
-async function loadTests(){try{const r=await fetch('/api/tests/list');const t=await r.json();
-  let h='<table><thead><tr><th>Name</th><th>Status</th><th>Duration</th><th>Throughput</th></tr></thead><tbody>';
-  for(const x of t){const a=(x.summary||{}).aggregate||{};h+=`<tr><td>${x.name}</td><td>${x.status}</td><td>${x.duration_sec?.toFixed(0)||'--'}s</td><td>${a.avg_throughput_mbps||'--'} Mbps</td></tr>`}
-  qs('#t-hist').innerHTML=t.length?h+'</tbody></table>':'<span class="waiting">No tests yet</span>'}catch(_){}}
-loadLbl();connectWS();loadTests();setTimeout(()=>{if(S&&Object.keys(S.paths||{}).length>0)showTab('monitor')},3000);
+window.saveLabels=saveLabels;
+
+// Connect command
+$("conn-cmd-text").textContent="sudo python -m hyperagg --mode client --vps-host "+location.hostname+" --interfaces eth1 usb0";
+window.copyCmd=function(){
+  navigator.clipboard.writeText($("conn-cmd-text").textContent);
+  var btn=document.querySelector(".copy-btn");btn.textContent="Copied!";
+  setTimeout(function(){btn.textContent="Copy"},1500);
+};
+
+// WebSocket
+function connectWs(){
+  if(ws&&ws.readyState<2) return;
+  try{
+    ws=new WebSocket("ws://"+location.host+"/ws");
+    ws.onmessage=function(e){try{S=JSON.parse(e.data);render(S)}catch(er){}};
+    ws.onclose=function(){ws=null;if(!pollTimer) pollTimer=setInterval(poll,2000)};
+    ws.onerror=function(){ws.close()};
+    if(pollTimer){clearInterval(pollTimer);pollTimer=null}
+  }catch(e){if(!pollTimer) pollTimer=setInterval(poll,2000)}
+}
+function poll(){
+  fetch("/api/state").then(function(r){return r.json()}).then(function(d){S=d;render(d)}).catch(function(){});
+  connectWs();
+}
+connectWs();
+setInterval(function(){if(!ws||ws.readyState>1)connectWs()},5000);
+
+// Render
+function render(s){
+  $("hdr-mode").textContent=s.mode||"--";
+  var dot=$("hdr-dot");dot.className="status-dot "+(s.running?"ok":"off");
+  renderConnect(s);
+  renderMonitor(s);
+  if(s.scheduler) $("tune-sched").value=s.scheduler.mode||"ai";
+  if(s.fec) $("tune-fec").value=s.fec.current_mode||"auto";
+  if(s.ai_enabled===false){$("ai-disabled").style.display="";$("ai-chat-wrap").style.display="none"}
+  else{$("ai-disabled").style.display="none";$("ai-chat-wrap").style.display=""}
+  renderActiveTest(s);
+}
+
+function renderConnect(s){
+  var up=s.uptime_sec!=null?fmtDur(s.uptime_sec):"--";
+  $("conn-status").innerHTML=
+    '<div class="metric-row"><span class="label">Mode</span><span class="val">'+esc(s.mode||"--")+'</span></div>'+
+    '<div class="metric-row"><span class="label">Uptime</span><span class="val">'+up+'</span></div>'+
+    '<div class="metric-row"><span class="label">Running</span><span class="val">'+(s.running?"Yes":"No")+'</span></div>';
+  var sess=s.sessions?Object.keys(s.sessions).length:0;
+  var badge;
+  if(s.mode!=="server") badge='<span class="badge badge-gray">N/A ('+esc(s.mode||"--")+' mode)</span>';
+  else if(sess===0) badge='<span class="badge badge-gray">No Clients</span>';
+  else{
+    var alive=s.sessions?Object.values(s.sessions).filter(function(c){return c.is_alive!==false}).length:sess;
+    badge=alive===sess?'<span class="badge badge-green">'+sess+' Connected</span>'
+      :'<span class="badge badge-yellow">'+alive+'/'+sess+' Degraded</span>';
+  }
+  $("conn-clients").innerHTML='<div style="font-size:32px;font-weight:700">'+sess+'</div>'+badge;
+}
+
+function renderMonitor(s){
+  var m=s.metrics||{};
+  $("m-throughput").innerHTML=num(m.aggregate_throughput_mbps)+'<small> Mbps</small>';
+  $("m-loss").innerHTML=num(m.effective_loss_pct)+'<small> %</small>';
+  var paths=s.paths||{};
+  var alive=Object.values(paths).filter(function(p){return p.is_alive}).length;
+  $("m-paths").textContent=S?alive:"--";
+  $("m-fec").textContent=m.fec_recoveries!=null?m.fec_recoveries:"--";
+
+  // Per-path cards
+  var pks=Object.keys(paths);
+  if(pks.length){
+    var totalThroughput=0;
+    pks.forEach(function(k){totalThroughput+=(paths[k].throughput_mbps||0)});
+    var h="";
+    pks.forEach(function(k){
+      var p=paths[k],lbl=pathLabels[k]||("Path "+k);
+      var qs=p.quality_score!=null?p.quality_score:null;
+      var qc=qs==null?"var(--g300)":qs>0.8?"var(--green)":qs>0.5?"var(--yellow)":"var(--red)";
+      var qw=qs!=null?(qs*100).toFixed(0):0;
+      var pr=p.prediction||{};
+      var tc=pr.trend==="stable"?"trend-stable":pr.trend==="degrading"?"trend-degrading":"trend-improving";
+      var share=totalThroughput>0?((p.throughput_mbps||0)/totalThroughput*100).toFixed(0):0;
+      var pathColor=k==="0"||k===0?"var(--blue)":"var(--purple)";
+      h+='<div class="card"><h3>'+esc(lbl)+" "+(p.is_alive?'<span class="badge badge-green" style="float:right">UP</span>':'<span class="badge badge-red" style="float:right">DOWN</span>')+'</h3>'+
+        '<div class="metric-row"><span class="label">RTT</span><span class="val">'+num(p.avg_rtt_ms)+' ms</span></div>'+
+        '<div class="metric-row"><span class="label">Loss</span><span class="val">'+num(p.loss_pct)+'%</span></div>'+
+        '<div class="metric-row"><span class="label">Jitter</span><span class="val">'+num(p.jitter_ms)+' ms</span></div>'+
+        '<div class="metric-row"><span class="label">Throughput</span><span class="val">'+num(p.throughput_mbps)+' Mbps</span></div>'+
+        '<div class="metric-row"><span class="label">Quality</span><span class="val">'+(qs!=null?qs.toFixed(2):"--")+'</span></div>'+
+        '<div class="quality-bar"><div class="quality-bar-inner" style="width:'+qw+'%;background:'+qc+'"></div></div>'+
+        '<div class="pred">Delivery: <b>'+(pr.delivery_probability!=null?(pr.delivery_probability*100).toFixed(1)+"%":"--")+'</b>'+
+        ' &middot; Trend: <span class="'+tc+'">'+esc(pr.trend||"--")+'</span>'+
+        ' &middot; '+esc(pr.recommended_action||"")+'</div>'+
+        '<div style="margin-top:8px;font-size:12px;color:var(--g500)">Traffic share: '+share+'%</div>'+
+        '<div class="share-bar"><div style="width:'+share+'%;background:'+pathColor+'"></div></div></div>';
+    });
+    $("mon-paths").innerHTML=h;
+  }
+
+  // Packets
+  var pkts=s.recent_packets||[];
+  if(pkts.length){
+    var rows="";
+    pkts.slice(-20).forEach(function(p){
+      var cls=p.packet_type==="recovered"?"recovered ":"";
+      var pcls="path-"+p.path_id;
+      rows+='<tr class="'+cls+pcls+'"><td>'+p.global_seq+'</td><td>'+(pathLabels[p.path_id]||p.path_id)+'</td>'+
+        '<td>'+esc(p.packet_type)+'</td><td>'+p.payload_len+'</td><td>'+(p.rtt_ms!=null?p.rtt_ms.toFixed(1):"--")+'</td></tr>';
+    });
+    $("pkt-body").innerHTML=rows;
+  }
+
+  // Events
+  var evts=s.events||[];
+  if(evts.length){
+    var eh="";
+    evts.slice(-10).forEach(function(e){
+      eh+='<div class="ev"><span class="ev-time">'+fmtTime(e.timestamp)+'</span><span class="ev-cat">'+esc(e.category)+'</span><span>'+esc(e.message)+'</span></div>';
+    });
+    $("event-log").innerHTML=eh;
+  }
+}
+
+function renderActiveTest(s){
+  var t=s.active_test;
+  if(t){
+    $("test-active-box").innerHTML='<div class="test-active">'+
+      '<b>'+esc(t.name||t.id)+'</b>'+
+      '<span>'+fmtDur(t.elapsed_sec)+' / '+fmtDur(t.duration_target_sec)+'</span>'+
+      '<span>'+t.snapshots_count+' snapshots</span>'+
+      '<button class="danger" onclick="stopTest()">Stop</button></div>';
+  }else{$("test-active-box").innerHTML="";}
+}
+
+// Tune actions
+function apiPost(url,body){
+  return fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+    .then(function(r){return r.ok});
+}
+window.setScheduler=function(){
+  apiPost("/api/scheduler/mode",{mode:$("tune-sched").value}).then(function(ok){flash("tune-sched-ok",ok)});
+};
+window.setFec=function(){
+  apiPost("/api/fec/mode",{mode:$("tune-fec").value}).then(function(ok){flash("tune-fec-ok",ok)});
+};
+window.forcePath=function(id){
+  apiPost("/api/force-path",{path_id:id}).then(function(ok){flash("tune-path-ok",ok)});
+};
+window.releasePath=function(){
+  apiPost("/api/release-path",{}).then(function(ok){flash("tune-path-ok",ok)});
+};
+function flash(id,ok){
+  var el=$(id);el.textContent=ok?"Done":"Failed";
+  setTimeout(function(){el.textContent=""},2000);
+}
+
+// Chat
+window.sendChat=function(){
+  var inp=$("chat-input"),msg=inp.value.trim();
+  if(!msg) return;
+  chatMsgs.push({role:"user",text:msg});
+  inp.value="";
+  renderChat();
+  fetch("/api/ai/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:msg})})
+    .then(function(r){return r.json()})
+    .then(function(d){chatMsgs.push({role:"ai",text:d.analysis||"No response",changes:d.suggested_changes||[]});renderChat()})
+    .catch(function(e){chatMsgs.push({role:"ai",text:"Error: "+e.message,changes:[]});renderChat()});
+};
+$("chat-input").addEventListener("keydown",function(e){if(e.key==="Enter")window.sendChat()});
+
+function renderChat(){
+  var area=$("chat-area"),h="";
+  chatMsgs.forEach(function(m,i){
+    h+='<div class="chat-msg '+m.role+'"><div class="bubble">'+esc(m.text)+'</div></div>';
+    if(m.changes&&m.changes.length){
+      m.changes.forEach(function(c,j){
+        var desc=typeof c==="string"?c:(c.description||JSON.stringify(c));
+        h+='<div class="suggested-change"><span>'+esc(desc)+'</span>'+
+          '<button class="primary" onclick="applyChange('+i+','+j+')" style="padding:4px 10px;font-size:12px">Apply</button></div>';
+      });
+    }
+  });
+  area.innerHTML=h;
+  area.scrollTop=area.scrollHeight;
+}
+window.applyChange=function(mi,ci){
+  var c=chatMsgs[mi].changes[ci];
+  if(!c) return;
+  var endpoint=c.endpoint||c.url;
+  var body=c.body||c.params||{};
+  if(endpoint){
+    apiPost(endpoint,body).then(function(){
+      chatMsgs.push({role:"ai",text:"Applied: "+(c.description||endpoint),changes:[]});
+      renderChat();
+    });
+  }
+};
+
+// Tests
+window.startTest=function(){
+  var name=$("test-name").value.trim()||"Unnamed";
+  var dur=parseInt($("test-dur").value);
+  apiPost("/api/tests/start",{name:name,duration_sec:dur});
+};
+window.stopTest=function(){apiPost("/api/tests/stop",{})};
+function loadTests(){
+  fetch("/api/tests/list").then(function(r){return r.json()}).then(function(list){
+    if(!list||!list.length){$("test-history").innerHTML='<p class="waiting">No tests yet</p>';return}
+    var h='<table><thead><tr><th>Name</th><th>Date</th><th>Duration</th><th>Summary</th></tr></thead><tbody>';
+    list.forEach(function(t){
+      var summ=t.summary?Object.entries(t.summary).map(function(kv){return (pathLabels[kv[0]]||kv[0])+": "+kv[1]}).join(", "):"";
+      h+='<tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\'">'+
+        '<td>'+esc(t.name)+'</td><td>'+fmtTime(t.date||t.started_at)+'</td><td>'+fmtDur(t.duration_sec||0)+'</td><td>'+esc(summ)+'</td></tr>'+
+        '<tr style="display:none"><td colspan="4"><pre style="font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto">'+esc(JSON.stringify(t,null,2))+'</pre></td></tr>';
+    });
+    h+='</tbody></table>';
+    $("test-history").innerHTML=h;
+  }).catch(function(){$("test-history").innerHTML='<p class="waiting">Could not load tests</p>'});
+}
+
+// Helpers
+function num(v){return v!=null?Number(v).toFixed(1):"--"}
+function esc(s){if(!s)return"";var d=document.createElement("div");d.textContent=String(s);return d.innerHTML}
+function fmtDur(sec){if(sec==null)return"--";sec=Math.floor(sec);var m=Math.floor(sec/60),sv=sec%60;
+  if(m>=60){var h=Math.floor(m/60);return h+"h "+String(m%60).padStart(2,"0")+"m"}
+  return m+"m "+String(sv).padStart(2,"0")+"s"}
+function fmtTime(ts){if(!ts)return"--";try{var d=new Date(ts);return d.toLocaleTimeString()}catch(e){return String(ts).slice(11,19)}}
+})();
 </script>
 </body>
 </html>
