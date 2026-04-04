@@ -191,6 +191,20 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 </div>
 </details>
 </div>
+<div class="card">
+<details class="collapsible">
+<summary>VPS Connection</summary>
+<div class="inner">
+<p style="font-size:12px;color:var(--muted);margin-bottom:8px">Set this when viewing the dashboard from Vercel or a different host than the VPS.</p>
+<div class="form-row">
+<label>VPS URL</label>
+<input type="text" id="vps-url" placeholder="http://89.167.91.132:8080" style="width:280px">
+</div>
+<button class="secondary" onclick="setVpsUrl()" style="margin-top:4px">Save &amp; Reconnect</button>
+<span id="vps-url-ok" style="font-size:12px;margin-left:8px"></span>
+</div>
+</details>
+</div>
 </div>
 <!-- ANALYZE -->
 <div class="page" id="page-analyze">
@@ -224,7 +238,7 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 </div>
 <div class="card">
 <h3>Export</h3>
-<button class="secondary" onclick="location.href='/api/packets/csv'">Download Packet CSV</button>
+<button class="secondary" onclick="location.href=API_BASE+'/api/packets/csv'">Download Packet CSV</button>
 </div>
 </div>
 </main>
@@ -233,6 +247,14 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 "use strict";
 var S=null,ws=null,pollTimer=null,pathLabels={0:"Starlink",1:"Cellular"},chatMsgs=[];
 var $=function(id){return document.getElementById(id)};
+
+// API Base URL — empty when served from VPS directly, set to VPS address when on Vercel/external
+var API_BASE = "";
+var WS_BASE = "";
+(function detectApiBase(){
+  var saved = localStorage.getItem("hyperagg_vps_url");
+  if(saved){API_BASE=saved.replace(/\/$/,"");WS_BASE=API_BASE.replace(/^http/,"ws")}
+})();
 
 // Tabs
 document.querySelectorAll("#nav button").forEach(function(b){
@@ -257,8 +279,19 @@ function saveLabels(){
 }
 window.saveLabels=saveLabels;
 
+// VPS URL
+if(API_BASE) $("vps-url").value=API_BASE;
+window.setVpsUrl=function(){
+  var url=$("vps-url").value.trim().replace(/\/$/,"");
+  if(url){API_BASE=url;WS_BASE=url.replace(/^http/,"ws");localStorage.setItem("hyperagg_vps_url",url);
+    if(ws){ws.close();ws=null}connectWs();$("vps-url-ok").textContent="Saved!";
+    setTimeout(function(){$("vps-url-ok").textContent=""},2000)}
+  else{API_BASE="";WS_BASE="";localStorage.removeItem("hyperagg_vps_url");
+    $("vps-url-ok").textContent="Cleared (using local)"}};
+
 // Connect command
-$("conn-cmd-text").textContent="sudo python -m hyperagg --mode client --vps-host "+location.hostname+" --interfaces eth1 usb0";
+var vpsHost=(API_BASE?API_BASE.replace(/^https?:\/\//,"").replace(/:\d+$/,""):location.hostname);
+$("conn-cmd-text").textContent="sudo python -m hyperagg --mode client --vps-host "+vpsHost+" --interfaces eth1 usb0";
 window.copyCmd=function(){
   navigator.clipboard.writeText($("conn-cmd-text").textContent);
   var btn=document.querySelector(".copy-btn");btn.textContent="Copied!";
@@ -269,7 +302,7 @@ window.copyCmd=function(){
 function connectWs(){
   if(ws&&ws.readyState<2) return;
   try{
-    ws=new WebSocket("ws://"+location.host+"/ws");
+    ws=new WebSocket((WS_BASE||("ws://"+location.host))+"/ws");
     ws.onmessage=function(e){try{S=JSON.parse(e.data);render(S)}catch(er){}};
     ws.onclose=function(){ws=null;if(!pollTimer) pollTimer=setInterval(poll,2000)};
     ws.onerror=function(){ws.close()};
@@ -277,7 +310,7 @@ function connectWs(){
   }catch(e){if(!pollTimer) pollTimer=setInterval(poll,2000)}
 }
 function poll(){
-  fetch("/api/state").then(function(r){return r.json()}).then(function(d){S=d;render(d)}).catch(function(){});
+  fetch(API_BASE+"/api/state").then(function(r){return r.json()}).then(function(d){S=d;render(d)}).catch(function(){});
   connectWs();
 }
 connectWs();
@@ -391,7 +424,7 @@ function renderActiveTest(s){
 
 // Tune actions
 function apiPost(url,body){
-  return fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+  return fetch(API_BASE+url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
     .then(function(r){return r.ok});
 }
 window.setScheduler=function(){
@@ -418,7 +451,7 @@ window.sendChat=function(){
   chatMsgs.push({role:"user",text:msg});
   inp.value="";
   renderChat();
-  fetch("/api/ai/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:msg})})
+  fetch(API_BASE+"/api/ai/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:msg})})
     .then(function(r){return r.json()})
     .then(function(d){chatMsgs.push({role:"ai",text:d.analysis||"No response",changes:d.suggested_changes||[]});renderChat()})
     .catch(function(e){chatMsgs.push({role:"ai",text:"Error: "+e.message,changes:[]});renderChat()});
@@ -484,7 +517,7 @@ function fmtSummary(s){
   return h;
 }
 function loadTests(){
-  fetch("/api/tests/list").then(function(r){return r.json()}).then(function(list){
+  fetch(API_BASE+"/api/tests/list").then(function(r){return r.json()}).then(function(list){
     if(!list||!list.length){$("test-history").innerHTML='<p class="waiting">No tests yet</p>';return}
     var h='<table><thead><tr><th>Name</th><th>Type</th><th>Date</th><th>Duration</th><th>Status</th></tr></thead><tbody>';
     list.forEach(function(t){
