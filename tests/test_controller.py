@@ -149,6 +149,43 @@ class TestChatHandler:
         result = await handler.chat("How are my paths?")
         assert "analysis" in result
         assert "suggested_changes" in result
+        # All suggested_changes should have endpoint+body format
+        for change in result["suggested_changes"]:
+            assert "endpoint" in change
+            assert "body" in change
+            assert "description" in change
+
+    async def test_mock_generates_suggestions_for_bad_path(self, sample_config):
+        """When a path has low score, mock should suggest forcing to the good path."""
+        from hyperagg.ai.chat_handler import ChatHandler
+        sdn = SDNController(sample_config, mode="client")
+        # Simulate a degraded state
+        sdn._state = sdn.get_system_state()
+        sdn._state["paths"] = {
+            0: {"avg_rtt_ms": 30, "loss_pct": 1, "quality_score": 0.95, "is_alive": True,
+                "prediction": {"trend": "stable", "recommended_action": "prefer"}},
+            1: {"avg_rtt_ms": 300, "loss_pct": 15, "quality_score": 0.2, "is_alive": True,
+                "prediction": {"trend": "degrading", "recommended_action": "avoid"}},
+        }
+        sdn._state["metrics"] = {"fec_mode": "xor", "effective_loss_pct": 5,
+                                   "aggregate_throughput_mbps": 10, "scheduler_mode": "ai",
+                                   "packets_sent_per_path": {}}
+        sdn._state["fec"] = {"current_mode": "xor", "total_recoveries": 5}
+        sdn._state["scheduler"] = {"mode": "ai"}
+        sdn.get_system_state = lambda: sdn._state
+        handler = ChatHandler(sdn, api_key="")
+        result = await handler.chat("What's wrong?")
+        assert len(result["suggested_changes"]) > 0
+        endpoints = [c["endpoint"] for c in result["suggested_changes"]]
+        assert any("/api/" in e for e in endpoints)
+
+    def test_normalize_action_format(self):
+        from hyperagg.ai.chat_handler import ChatHandler
+        changes = [{"action": "set_scheduler_mode", "value": "weighted", "reason": "test"}]
+        normalized = ChatHandler._normalize_changes(changes)
+        assert len(normalized) == 1
+        assert normalized[0]["endpoint"] == "/api/scheduler/mode"
+        assert normalized[0]["body"] == {"mode": "weighted"}
 
     def test_history(self, sample_config):
         from hyperagg.ai.chat_handler import ChatHandler
@@ -168,6 +205,20 @@ class TestTestRunner:
         result = await runner.stop_test()
         assert result.status == "stopped"
         assert runner.get_active() is None
+
+    async def test_ab_test(self, sample_config):
+        from hyperagg.testing.test_runner import TestRunner
+        sdn = SDNController(sample_config, mode="client")
+        runner = TestRunner(sdn)
+        session = await runner.start_ab_test(
+            "ab1", duration_minutes=0.02,
+            variant_a={"scheduler_mode": "ai"},
+            variant_b={"scheduler_mode": "weighted"},
+        )
+        assert session.test_type == "ab"
+        assert session.status == "running"
+        result = await runner.stop_test()
+        assert result.test_type == "ab"
 
     def test_list_tests_empty(self, sample_config):
         from hyperagg.testing.test_runner import TestRunner

@@ -54,6 +54,16 @@ class ChatRequest(BaseModel):
 class TestStartRequest(BaseModel):
     name: str
     duration_minutes: float = 1.0
+    duration_sec: Optional[float] = None  # Dashboard sends seconds — auto-convert
+    description: str = ""
+
+
+class ABTestRequest(BaseModel):
+    name: str
+    duration_minutes: float = 1.0
+    duration_sec: Optional[float] = None
+    variant_a: dict = {}  # e.g. {"scheduler_mode": "ai"}
+    variant_b: dict = {}  # e.g. {"scheduler_mode": "weighted"}
     description: str = ""
 
 
@@ -199,9 +209,28 @@ def create_dashboard_app(
     async def test_start(req: TestStartRequest):
         if not tests:
             return {"error": "Test runner not initialized"}
+        # Handle dashboard sending duration_sec
+        dur = req.duration_minutes
+        if req.duration_sec and req.duration_sec > 0:
+            dur = req.duration_sec / 60.0
         try:
-            session = await tests.start_test(req.name, req.duration_minutes, req.description)
+            session = await tests.start_test(req.name, dur, req.description)
             return {"status": "started", "id": session.id, "name": session.name}
+        except RuntimeError as e:
+            return {"error": str(e)}
+
+    @app.post("/api/tests/ab")
+    async def test_ab_start(req: ABTestRequest):
+        if not tests:
+            return {"error": "Test runner not initialized"}
+        dur = req.duration_minutes
+        if req.duration_sec and req.duration_sec > 0:
+            dur = req.duration_sec / 60.0
+        try:
+            session = await tests.start_ab_test(
+                req.name, dur, req.variant_a, req.variant_b, req.description
+            )
+            return {"status": "started", "id": session.id, "name": session.name, "type": "ab"}
         except RuntimeError as e:
             return {"error": str(e)}
 

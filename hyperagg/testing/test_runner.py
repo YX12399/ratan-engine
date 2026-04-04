@@ -30,6 +30,7 @@ class TestSnapshot:
     metrics: dict
     fec: dict
     scheduler: dict
+    variant: str = ""  # "A" or "B" for A/B tests, empty for standard
 
 
 @dataclass
@@ -53,6 +54,9 @@ class TestSession:
     ended_at: float = 0.0
     duration_target_sec: float = 60.0
     status: str = "pending"  # pending, running, completed, stopped
+    test_type: str = "standard"  # standard, ab
+    variant_a: Optional[dict] = None  # Config for A/B variant A
+    variant_b: Optional[dict] = None  # Config for A/B variant B
     snapshots: list[TestSnapshot] = field(default_factory=list)
     summary: Optional[TestSummary] = None
 
@@ -126,6 +130,95 @@ class TestRunner:
         logger.info(f"Test '{name}' started (id={session.id}, duration={duration_minutes}m)")
 
         return session
+
+    async def start_ab_test(
+        self,
+        name: str,
+        duration_minutes: float = 1.0,
+        variant_a: Optional[dict] = None,
+        variant_b: Optional[dict] = None,
+        description: str = "",
+    ) -> TestSession:
+        """
+        Start an A/B test — runs variant A for the first half, variant B for the second.
+
+        Args:
+            variant_a: Config to apply for first half, e.g. {"scheduler_mode": "ai"}
+            variant_b: Config to apply for second half, e.g. {"scheduler_mode": "weighted"}
+        """
+        if self._active and self._active.status == "running":
+            raise RuntimeError("A test is already running")
+
+        session = TestSession(
+            id=str(uuid.uuid4())[:8],
+            name=name,
+            description=description or f"A/B: {variant_a} vs {variant_b}",
+            started_at=time.time(),
+            duration_target_sec=duration_minutes * 60,
+            status="running",
+            test_type="ab",
+            variant_a=variant_a or {},
+            variant_b=variant_b or {},
+        )
+
+        self._active = session
+        self._sessions[session.id] = session
+        self._capture_task = asyncio.create_task(self._ab_capture_loop(session))
+        logger.info(f"A/B test '{name}' started (id={session.id})")
+
+        return session
+
+    async def _ab_capture_loop(self, session: TestSession) -> None:
+        """Capture loop for A/B tests — switch config at halfway point."""
+        try:
+            half = session.duration_target_sec / 2.0
+            current_variant = "A"
+
+            # Apply variant A config
+            self._apply_variant(session.variant_a)
+            logger.info(f"A/B test: variant A active — {session.variant_a}")
+
+            while True:
+                elapsed = time.time() - session.started_at
+                if elapsed >= session.duration_target_sec:
+                    break
+
+                # Switch to variant B at halfway
+                if current_variant == "A" and elapsed >= half:
+                    current_variant = "B"
+                    self._apply_variant(session.variant_b)
+                    logger.info(f"A/B test: switched to variant B — {session.variant_b}")
+
+                state = self._sdn.get_system_state()
+                snapshot = TestSnapshot(
+                    timestamp=time.time(),
+                    elapsed_sec=round(elapsed, 1),
+                    paths=state.get("paths", {}),
+                    metrics=state.get("metrics", {}),
+                    fec=state.get("fec", {}),
+                    scheduler=state.get("scheduler", {}),
+                    variant=current_variant,
+                )
+                session.snapshots.append(snapshot)
+                await asyncio.sleep(2.0)
+
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if session.status == "running":
+                session.status = "completed"
+            self._finalize(session)
+            self._active = None
+
+    def _apply_variant(self, variant: Optional[dict]) -> None:
+        """Apply a config variant via the SDN controller."""
+        if not variant:
+            return
+        for key, value in variant.items():
+            if key == "scheduler_mode" and hasattr(self._sdn, "set_scheduler_mode"):
+                self._sdn.set_scheduler_mode(value)
+            elif key == "fec_mode" and hasattr(self._sdn, "set_fec_mode"):
+                self._sdn.set_fec_mode(value)
 
     async def stop_test(self) -> Optional[TestSession]:
         """Stop the active test early."""
@@ -241,6 +334,9 @@ class TestRunner:
             "ended_at": session.ended_at,
             "duration_target_sec": session.duration_target_sec,
             "status": session.status,
+            "test_type": session.test_type,
+            "variant_a": session.variant_a,
+            "variant_b": session.variant_b,
             "summary": asdict(session.summary) if session.summary else None,
             "snapshots": [asdict(s) for s in session.snapshots],
         }
@@ -250,13 +346,20 @@ class TestRunner:
         """Get info about the currently running test."""
         if not self._active or self._active.status != "running":
             return None
+        elapsed = round(time.time() - self._active.started_at, 1)
+        current_variant = ""
+        if self._active.test_type == "ab":
+            half = self._active.duration_target_sec / 2.0
+            current_variant = "A" if elapsed < half else "B"
         return {
             "id": self._active.id,
             "name": self._active.name,
             "status": self._active.status,
-            "elapsed_sec": round(time.time() - self._active.started_at, 1),
+            "test_type": self._active.test_type,
+            "elapsed_sec": elapsed,
             "duration_target_sec": self._active.duration_target_sec,
             "snapshots_count": len(self._active.snapshots),
+            "current_variant": current_variant,
         }
 
     def list_tests(self) -> list[dict]:

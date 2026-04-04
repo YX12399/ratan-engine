@@ -213,6 +213,7 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 <select id="test-dur"><option value="30">30s</option><option value="60">1m</option>
 <option value="300">5m</option><option value="600">10m</option></select>
 <button class="primary" onclick="startTest()">Start Test</button>
+<button class="secondary" onclick="startABTest()" title="Runs AI scheduler for first half, Weighted for second half">A/B Test</button>
 </div>
 <div id="test-active-box"></div>
 <div style="margin-top:12px">
@@ -457,17 +458,40 @@ window.startTest=function(){
   var name=$("test-name").value.trim()||"Unnamed";
   var dur=parseInt($("test-dur").value);
   apiPost("/api/tests/start",{name:name,duration_sec:dur});
+  setTimeout(loadTests,2000);
 };
-window.stopTest=function(){apiPost("/api/tests/stop",{})};
+window.startABTest=function(){
+  var name=$("test-name").value.trim()||"A/B Test";
+  var dur=parseInt($("test-dur").value);
+  apiPost("/api/tests/ab",{name:name,duration_sec:dur,
+    variant_a:{scheduler_mode:"ai"},variant_b:{scheduler_mode:"weighted"}});
+  setTimeout(loadTests,2000);
+};
+window.stopTest=function(){apiPost("/api/tests/stop",{});setTimeout(loadTests,1000)};
+function fmtSummary(s){
+  if(!s)return'<span class="waiting">No summary</span>';
+  var h='<div style="font-size:12px;margin-top:6px">';
+  var pp=s.per_path||{};
+  for(var pid in pp){var p=pp[pid];
+    h+='<div style="margin-bottom:4px"><b>'+(pathLabels[pid]||'Path '+pid)+'</b>: ';
+    h+='RTT='+num(p.avg_rtt_ms)+'ms (p95='+num(p.p95_rtt_ms)+'), Loss='+num(p.avg_loss_pct)+'%, Score='+num(p.avg_score);
+    h+='</div>'}
+  var a=s.aggregate||{};
+  h+='<div style="margin-top:4px;padding-top:4px;border-top:1px solid var(--g200)">';
+  h+='<b>Aggregate</b>: '+num(a.avg_throughput_mbps)+' Mbps avg ('+num(a.max_throughput_mbps)+' max), ';
+  h+=num(a.avg_effective_loss_pct)+'% loss, '+(a.total_fec_recoveries||0)+' FEC recoveries';
+  h+='</div></div>';
+  return h;
+}
 function loadTests(){
   fetch("/api/tests/list").then(function(r){return r.json()}).then(function(list){
     if(!list||!list.length){$("test-history").innerHTML='<p class="waiting">No tests yet</p>';return}
-    var h='<table><thead><tr><th>Name</th><th>Date</th><th>Duration</th><th>Summary</th></tr></thead><tbody>';
+    var h='<table><thead><tr><th>Name</th><th>Type</th><th>Date</th><th>Duration</th><th>Status</th></tr></thead><tbody>';
     list.forEach(function(t){
-      var summ=t.summary?Object.entries(t.summary).map(function(kv){return (pathLabels[kv[0]]||kv[0])+": "+kv[1]}).join(", "):"";
+      var typ=(t.test_type||'standard')==='ab'?'<span style="color:var(--purple)">A/B</span>':'Standard';
       h+='<tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\'">'+
-        '<td>'+esc(t.name)+'</td><td>'+fmtTime(t.date||t.started_at)+'</td><td>'+fmtDur(t.duration_sec||0)+'</td><td>'+esc(summ)+'</td></tr>'+
-        '<tr style="display:none"><td colspan="4"><pre style="font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto">'+esc(JSON.stringify(t,null,2))+'</pre></td></tr>';
+        '<td>'+esc(t.name)+'</td><td>'+typ+'</td><td>'+fmtTime(t.started_at)+'</td><td>'+fmtDur(t.duration_sec||0)+'</td><td>'+esc(t.status)+'</td></tr>'+
+        '<tr style="display:none"><td colspan="5">'+fmtSummary(t.summary)+'</td></tr>';
     });
     h+='</tbody></table>';
     $("test-history").innerHTML=h;
