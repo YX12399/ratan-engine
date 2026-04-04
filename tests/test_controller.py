@@ -135,15 +135,61 @@ class TestPacketLogger:
         assert len(pl._log) == 5  # ring buffer kept only 5
 
 
+class TestChatHandler:
+    def test_mock_response_without_api_key(self, sample_config):
+        from hyperagg.ai.chat_handler import ChatHandler
+        sdn = SDNController(sample_config, mode="client")
+        handler = ChatHandler(sdn, api_key="")  # No API key
+        assert not handler.is_enabled
+
+    async def test_mock_chat(self, sample_config):
+        from hyperagg.ai.chat_handler import ChatHandler
+        sdn = SDNController(sample_config, mode="client")
+        handler = ChatHandler(sdn, api_key="")
+        result = await handler.chat("How are my paths?")
+        assert "analysis" in result
+        assert "suggested_changes" in result
+
+    def test_history(self, sample_config):
+        from hyperagg.ai.chat_handler import ChatHandler
+        sdn = SDNController(sample_config, mode="client")
+        handler = ChatHandler(sdn, api_key="")
+        assert handler.get_history() == []
+
+
+class TestTestRunner:
+    async def test_start_and_stop(self, sample_config):
+        from hyperagg.testing.test_runner import TestRunner
+        sdn = SDNController(sample_config, mode="client")
+        runner = TestRunner(sdn)
+        session = await runner.start_test("test1", duration_minutes=0.01)
+        assert session.status == "running"
+        assert runner.get_active() is not None
+        result = await runner.stop_test()
+        assert result.status == "stopped"
+        assert runner.get_active() is None
+
+    def test_list_tests_empty(self, sample_config):
+        from hyperagg.testing.test_runner import TestRunner
+        sdn = SDNController(sample_config, mode="client")
+        runner = TestRunner(sdn)
+        tests = runner.list_tests()
+        assert isinstance(tests, list)
+
+
 class TestDashboardAPI:
     @pytest.fixture
     def app(self, sample_config):
         from hyperagg.dashboard.api import create_dashboard_app
+        from hyperagg.ai.chat_handler import ChatHandler
+        from hyperagg.testing.test_runner import TestRunner
         sdn = SDNController(sample_config, mode="client")
         sdn._emit_event("test", "startup")
         pkt_log = PacketLogger()
         pkt_log.log(1, 0, "data", 1400)
-        return create_dashboard_app(sdn, pkt_log)
+        ai = ChatHandler(sdn, api_key="")
+        tests = TestRunner(sdn)
+        return create_dashboard_app(sdn, pkt_log, ai, tests)
 
     @pytest.fixture
     def client(self, app):
@@ -192,3 +238,37 @@ class TestDashboardAPI:
         resp = client.get("/")
         assert resp.status_code == 200
         assert "HyperAgg" in resp.text
+
+    def test_ai_chat(self, client):
+        resp = client.post("/api/ai/chat", json={"message": "How are my paths?"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "analysis" in data
+        assert "suggested_changes" in data
+
+    def test_ai_status(self, client):
+        resp = client.get("/api/ai/status")
+        assert resp.status_code == 200
+        assert "enabled" in resp.json()
+
+    def test_ai_history(self, client):
+        resp = client.get("/api/ai/history")
+        assert resp.status_code == 200
+
+    def test_tests_list(self, client):
+        resp = client.get("/api/tests/list")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    def test_tests_active_none(self, client):
+        resp = client.get("/api/tests/active")
+        assert resp.status_code == 200
+
+    def test_tests_start_and_stop(self, client):
+        resp = client.post("/api/tests/start", json={"name": "test1", "duration_minutes": 0.01})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "started"
+
+        resp = client.post("/api/tests/stop")
+        assert resp.status_code == 200

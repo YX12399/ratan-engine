@@ -2,19 +2,26 @@
 Dashboard API — FastAPI routes + WebSocket for real-time metrics.
 
 Endpoints:
-  GET  /api/health         — System health check
-  GET  /api/state          — Complete system state snapshot
-  GET  /api/paths          — Per-path state with predictions
-  GET  /api/fec            — FEC stats and mode
-  GET  /api/scheduler      — Scheduler stats and decisions
-  GET  /api/events         — Recent event log
-  GET  /api/packets        — Recent packet log
-  GET  /api/packets/csv    — Export packet log as CSV
-  POST /api/scheduler/mode — Set scheduler mode
-  POST /api/fec/mode       — Set FEC mode
-  POST /api/force-path     — Force traffic to one path
-  POST /api/release-path   — Release path forcing
-  WS   /ws                 — WebSocket for live updates (1Hz)
+  GET  /api/health          — System health check
+  GET  /api/state           — Complete system state snapshot
+  GET  /api/paths           — Per-path state with predictions
+  GET  /api/fec             — FEC stats and mode
+  GET  /api/scheduler       — Scheduler stats and decisions
+  GET  /api/events          — Recent event log
+  GET  /api/packets         — Recent packet log
+  GET  /api/packets/csv     — Export packet log as CSV
+  POST /api/scheduler/mode  — Set scheduler mode
+  POST /api/fec/mode        — Set FEC mode
+  POST /api/force-path      — Force traffic to one path
+  POST /api/release-path    — Release path forcing
+  POST /api/ai/chat         — AI chat analysis
+  GET  /api/ai/history      — AI chat history
+  POST /api/tests/start     — Start a test session
+  GET  /api/tests/active    — Current running test
+  POST /api/tests/stop      — Stop active test
+  GET  /api/tests/list      — All completed tests
+  GET  /api/tests/{id}      — Full test data
+  WS   /ws                  — WebSocket for live updates (1Hz)
 """
 
 import asyncio
@@ -40,7 +47,22 @@ class ForcePathRequest(BaseModel):
     path_id: int
 
 
-def create_dashboard_app(sdn_controller, packet_logger=None) -> FastAPI:
+class ChatRequest(BaseModel):
+    message: str
+
+
+class TestStartRequest(BaseModel):
+    name: str
+    duration_minutes: float = 1.0
+    description: str = ""
+
+
+def create_dashboard_app(
+    sdn_controller,
+    packet_logger=None,
+    chat_handler=None,
+    test_runner=None,
+) -> FastAPI:
     """Create the FastAPI app with all dashboard routes."""
 
     app = FastAPI(
@@ -59,6 +81,8 @@ def create_dashboard_app(sdn_controller, packet_logger=None) -> FastAPI:
 
     ctrl = sdn_controller
     pkt_log = packet_logger
+    ai = chat_handler
+    tests = test_runner
 
     # ── Static files (dashboard HTML) ──
 
@@ -78,11 +102,15 @@ def create_dashboard_app(sdn_controller, packet_logger=None) -> FastAPI:
             "timestamp": time.time(),
             "engine": "hyperagg",
             "version": "2.0.0",
+            "ai_enabled": ai.is_enabled if ai else False,
         }
 
     @app.get("/api/state")
     async def system_state():
-        return ctrl.get_system_state()
+        state = ctrl.get_system_state()
+        if tests:
+            state["active_test"] = tests.get_active()
+        return state
 
     @app.get("/api/paths")
     async def paths():
@@ -147,6 +175,63 @@ def create_dashboard_app(sdn_controller, packet_logger=None) -> FastAPI:
         ctrl.release_path()
         return {"status": "ok"}
 
+    # ── AI Chat ──
+
+    @app.post("/api/ai/chat")
+    async def ai_chat(req: ChatRequest):
+        if not ai:
+            return {"analysis": "AI chat not initialized", "suggested_changes": []}
+        return await ai.chat(req.message)
+
+    @app.get("/api/ai/history")
+    async def ai_history(last_n: int = Query(default=20, le=100)):
+        if not ai:
+            return []
+        return ai.get_history(last_n)
+
+    @app.get("/api/ai/status")
+    async def ai_status():
+        return {"enabled": ai.is_enabled if ai else False}
+
+    # ── Test Sessions ──
+
+    @app.post("/api/tests/start")
+    async def test_start(req: TestStartRequest):
+        if not tests:
+            return {"error": "Test runner not initialized"}
+        try:
+            session = await tests.start_test(req.name, req.duration_minutes, req.description)
+            return {"status": "started", "id": session.id, "name": session.name}
+        except RuntimeError as e:
+            return {"error": str(e)}
+
+    @app.get("/api/tests/active")
+    async def test_active():
+        if not tests:
+            return None
+        return tests.get_active()
+
+    @app.post("/api/tests/stop")
+    async def test_stop():
+        if not tests:
+            return {"error": "Test runner not initialized"}
+        session = await tests.stop_test()
+        if session:
+            return {"status": "stopped", "id": session.id}
+        return {"status": "no_active_test"}
+
+    @app.get("/api/tests/list")
+    async def test_list():
+        if not tests:
+            return []
+        return tests.list_tests()
+
+    @app.get("/api/tests/{test_id}")
+    async def test_get(test_id: str):
+        if not tests:
+            return None
+        return tests.get_test(test_id)
+
     # ── WebSocket for live updates ──
 
     @app.websocket("/ws")
@@ -156,14 +241,15 @@ def create_dashboard_app(sdn_controller, packet_logger=None) -> FastAPI:
         try:
             while True:
                 state = ctrl.get_system_state()
-                # Add recent packets for live stream
                 if pkt_log:
                     state["recent_packets"] = pkt_log.get_recent(20)
                     state["packet_stats"] = pkt_log.get_stats()
-                # Add recent events
                 state["events"] = ctrl.get_events(10)
+                if tests:
+                    state["active_test"] = tests.get_active()
+                state["ai_enabled"] = ai.is_enabled if ai else False
                 await ws.send_json(state)
-                await asyncio.sleep(1.0)  # 1 Hz updates
+                await asyncio.sleep(1.0)
         except WebSocketDisconnect:
             logger.info("WebSocket client disconnected")
         except Exception as e:

@@ -142,6 +142,8 @@ async def run_server(args, config: dict) -> None:
     from hyperagg.controller.sdn_controller import SDNController
     from hyperagg.dashboard.api import create_dashboard_app
     from hyperagg.telemetry.packet_logger import PacketLogger
+    from hyperagg.ai.chat_handler import ChatHandler
+    from hyperagg.testing.test_runner import TestRunner
 
     logger.info("Starting HyperAgg in SERVER mode")
 
@@ -161,8 +163,12 @@ async def run_server(args, config: dict) -> None:
         server.tun = tun
         logger.info(f"TUN hagg-srv0 at {server_ip}")
 
+    # AI + Testing
+    ai_handler = ChatHandler(sdn)
+    test_runner = TestRunner(sdn)
+
     # Dashboard
-    app = create_dashboard_app(sdn, pkt_log)
+    app = create_dashboard_app(sdn, pkt_log, ai_handler, test_runner)
 
     # Graceful shutdown
     loop = asyncio.get_event_loop()
@@ -202,6 +208,8 @@ async def run_client(args, config: dict) -> None:
     from hyperagg.controller.network_manager import NetworkManager
     from hyperagg.dashboard.api import create_dashboard_app
     from hyperagg.telemetry.packet_logger import PacketLogger
+    from hyperagg.ai.chat_handler import ChatHandler
+    from hyperagg.testing.test_runner import TestRunner
 
     logger.info("Starting HyperAgg in CLIENT mode")
 
@@ -287,7 +295,11 @@ async def run_client(args, config: dict) -> None:
         )
 
     # Dashboard
-    app = create_dashboard_app(sdn, pkt_log)
+    # AI + Testing
+    ai_handler = ChatHandler(sdn)
+    test_runner = TestRunner(sdn)
+
+    app = create_dashboard_app(sdn, pkt_log, ai_handler, test_runner)
 
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -335,19 +347,23 @@ async def run_demo(args, config: dict) -> None:
     from hyperagg.controller.sdn_controller import SDNController
     from hyperagg.dashboard.api import create_dashboard_app
     from hyperagg.telemetry.packet_logger import PacketLogger
+    from hyperagg.ai.chat_handler import ChatHandler
+    from hyperagg.testing.test_runner import TestRunner
 
     logger.info("Starting HyperAgg in DEMO mode (simulated data)")
     logger.info("No TUN device, no root required, no hardware needed")
 
     sdn = DemoSDNController(config)
     pkt_log = PacketLogger()
+    ai_handler = ChatHandler(sdn)
+    test_runner = TestRunner(sdn)
 
     # Start simulated data feed
     sim_task = asyncio.create_task(
         _simulate_data(sdn, pkt_log)
     )
 
-    app = create_dashboard_app(sdn, pkt_log)
+    app = create_dashboard_app(sdn, pkt_log, ai_handler, test_runner)
 
     logger.info(f"Dashboard at http://localhost:{args.api_port}")
 
