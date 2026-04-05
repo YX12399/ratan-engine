@@ -15,6 +15,7 @@ from typing import Optional
 
 from hyperagg.fec.xor_fec import XORFecEncoder, XORFecDecoder
 from hyperagg.fec.rs_fec import RSFecEncoder, RSFecDecoder
+from hyperagg.fec.adaptive_fec import AdaptiveFecSizer
 
 logger = logging.getLogger("hyperagg.fec.engine")
 
@@ -58,6 +59,9 @@ class FecEngine:
             self._rs_parity + 2,
             self._group_timeout_ms,
         )
+
+        # Module 3: adaptive FEC group sizing
+        self._adaptive_sizer = AdaptiveFecSizer()
 
         # Stats
         self._total_recoveries = 0
@@ -279,6 +283,14 @@ class FecEngine:
         self._rs_decoder.expire_groups()
         self._rs_heavy_decoder.expire_groups()
 
+    def record_received(self) -> None:
+        """Record a successfully received packet (for adaptive FEC)."""
+        self._adaptive_sizer.record_received()
+
+    def record_lost(self) -> None:
+        """Record a lost packet (for adaptive FEC burst detection)."""
+        self._adaptive_sizer.record_lost()
+
     def get_stats(self) -> dict:
         return {
             "current_mode": self._current_mode,
@@ -289,6 +301,10 @@ class FecEngine:
             "xor_decoder_recoveries": self._xor_decoder.recoveries,
             "rs_decoder_recoveries": self._rs_decoder.recoveries,
         }
+
+    def get_adaptive_stats(self) -> dict:
+        """Get adaptive FEC sizer stats (burst detection, group sizing)."""
+        return self._adaptive_sizer.get_stats()
 
 
 if __name__ == "__main__":

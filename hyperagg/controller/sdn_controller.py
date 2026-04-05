@@ -103,6 +103,20 @@ class SDNController:
                         f"Path {pid} is DOWN (consecutive failures)",
                     )
 
+            # Module 2+4: update pacer rates and congestion control from BW estimator
+            if hasattr(self.tunnel, '_bw_estimator'):
+                for pid in states:
+                    bw = self.tunnel._bw_estimator.get_estimated_bw(pid)
+                    if bw > 0:
+                        self.tunnel._pacer.set_rate(pid, bw)
+                        if pid in self.tunnel._congestion:
+                            self.tunnel._congestion[pid].update_estimated_bw(bw)
+                total_bw = sum(
+                    self.tunnel._bw_estimator.get_estimated_bw(pid) for pid in states
+                )
+                if total_bw > 0:
+                    self.tunnel._tier_mgr.update_capacity(total_bw)
+
     # ── Control API (called by dashboard) ──
 
     def set_scheduler_mode(self, mode: str) -> None:
@@ -183,6 +197,24 @@ class SDNController:
             }
             state["fec"] = self.tunnel._fec.get_stats()
             state["qos"] = self.qos_engine.get_tier_info()
+
+            # Module stats (all 7 modules)
+            if hasattr(self.tunnel, '_bw_estimator'):
+                state["bandwidth"] = {
+                    pid: self.tunnel._bw_estimator.get_estimated_bw_mbps(pid)
+                    for pid in path_states
+                }
+                state["pacer"] = self.tunnel._pacer.get_stats()
+                state["congestion"] = {
+                    pid: cc.get_stats()
+                    for pid, cc in self.tunnel._congestion.items()
+                }
+                state["owd"] = self.tunnel._owd.get_stats()
+                state["reorder"] = self.tunnel._reorder.get_stats()
+                state["throughput"] = self.tunnel._throughput.compute()
+                state["tier_manager"] = self.tunnel._tier_mgr.get_stats()
+                state["session"] = self.tunnel._session_mgr.get_stats()
+                state["adaptive_fec"] = self.tunnel._fec.get_adaptive_stats()
 
         elif isinstance(self.tunnel, TunnelServer):
             state["metrics"] = self.tunnel.get_metrics()

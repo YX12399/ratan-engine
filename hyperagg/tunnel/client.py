@@ -4,10 +4,14 @@ Tunnel Client — Edge-side UDP bonding tunnel.
 Reads packets from TUN, passes them through FEC + AI scheduler,
 and sends them over multiple UDP paths to the VPS simultaneously.
 
-Three concurrent async tasks:
-  1. TX Pipeline: TUN → encrypt → FEC → schedule → UDP send
-  2. RX Pipeline: UDP recv → dedup → FEC decode → decrypt → TUN
-  3. Keepalive: periodic probes on each path for RTT measurement
+Integrates all 7 networking modules:
+  1. AdaptiveReorderBuffer (timeout from path differential + jitter)
+  2. BandwidthEstimator + TokenBucketPacer (capacity-aware sending)
+  3. AdaptiveFecSizer (burst-loss-aware FEC group sizing)
+  4. AIMDController + TierBandwidthManager (congestion control)
+  5. OWDEstimator (asymmetric delay detection)
+  6. ThroughputCalculator (effective throughput accounting)
+  7. SessionManager (reconnect without state loss)
 """
 
 import asyncio
@@ -26,82 +30,14 @@ from hyperagg.fec.fec_engine import FecEngine
 from hyperagg.scheduler.path_monitor import PathMonitor
 from hyperagg.scheduler.path_predictor import PathPredictor
 from hyperagg.scheduler.path_scheduler import PathScheduler
+from hyperagg.tunnel.reorder_buffer import AdaptiveReorderBuffer
+from hyperagg.scheduler.bandwidth_estimator import BandwidthEstimator, TokenBucketPacer
+from hyperagg.scheduler.congestion_control import AIMDController, TierBandwidthManager
+from hyperagg.scheduler.owd_estimator import OWDEstimator
+from hyperagg.metrics.throughput_calculator import ThroughputCalculator
+from hyperagg.tunnel.session import SessionManager
 
 logger = logging.getLogger("hyperagg.tunnel.client")
-
-
-class ReorderBuffer:
-    """Reorder buffer for out-of-sequence packet delivery."""
-
-    def __init__(self, window_size: int = 1024, timeout_ms: float = 100.0):
-        self._window = window_size
-        self._timeout_ms = timeout_ms
-        self._buffer: dict[int, bytes] = {}
-        self._next_seq = 0
-        self._timestamps: dict[int, float] = {}
-        self._seen: set[int] = set()
-        self._seen_max = 0
-
-    def is_duplicate(self, global_seq: int) -> bool:
-        """Check if we already delivered this sequence number."""
-        if global_seq < self._next_seq:
-            return True
-        return global_seq in self._seen
-
-    def insert(self, global_seq: int, payload: bytes) -> list[bytes]:
-        """
-        Insert a packet and return any that can now be delivered in order.
-        """
-        if self.is_duplicate(global_seq):
-            return []
-
-        self._seen.add(global_seq)
-        if global_seq > self._seen_max:
-            self._seen_max = global_seq
-        # Bound seen set
-        if len(self._seen) > self._window * 2:
-            cutoff = self._next_seq
-            self._seen = {s for s in self._seen if s >= cutoff}
-
-        self._buffer[global_seq] = payload
-        self._timestamps[global_seq] = time.monotonic()
-
-        return self._deliver_in_order()
-
-    def check_timeouts(self) -> list[bytes]:
-        """Deliver buffered packets that have waited too long."""
-        now = time.monotonic()
-        cutoff = now - (self._timeout_ms / 1000.0)
-
-        # If next expected seq has timed out, skip it
-        delivered = []
-        while self._next_seq not in self._buffer:
-            # Check if we have any buffered packets at all
-            if not self._buffer:
-                break
-            # Check if the gap has timed out
-            ts = self._timestamps.get(min(self._buffer.keys()), now)
-            if ts > cutoff:
-                break  # Not timed out yet
-            # Skip the missing sequence
-            logger.debug(f"Timeout: skipping missing seq {self._next_seq}")
-            self._next_seq += 1
-
-        delivered.extend(self._deliver_in_order())
-        return delivered
-
-    def _deliver_in_order(self) -> list[bytes]:
-        """Deliver consecutive packets starting from next_seq."""
-        delivered = []
-        while self._next_seq in self._buffer:
-            delivered.append(self._buffer.pop(self._next_seq))
-            self._timestamps.pop(self._next_seq, None)
-            self._next_seq += 1
-        return delivered
-
-    @property
-    def depth(self) -> int:
-        return len(self._buffer)
 
 
 class TunnelClient:
@@ -132,10 +68,30 @@ class TunnelClient:
         self._predictor = PathPredictor(config)
         self._scheduler = PathScheduler(config, self._monitor, self._predictor)
 
-        # Reorder buffer
-        self._reorder = ReorderBuffer(
+        # Module 1: Adaptive reorder buffer
+        self._reorder = AdaptiveReorderBuffer(
             window_size=tunnel_cfg.get("sequence_window", 1024),
-            timeout_ms=tunnel_cfg.get("reorder_timeout_ms", 100),
+            initial_timeout_ms=tunnel_cfg.get("reorder_timeout_ms", 100),
+        )
+
+        # Module 2: Bandwidth estimation + pacing
+        self._bw_estimator = BandwidthEstimator(ewma_alpha=0.2, window_sec=1.0)
+        self._pacer = TokenBucketPacer()
+
+        # Module 4: Per-path congestion control + tier management
+        self._congestion: dict[int, AIMDController] = {}
+        self._tier_mgr = TierBandwidthManager()
+
+        # Module 5: One-way delay estimation
+        self._owd = OWDEstimator(ewma_alpha=0.1)
+
+        # Module 6: Effective throughput accounting
+        self._throughput = ThroughputCalculator(window_sec=5.0)
+
+        # Module 7: Session resumption
+        self._session_mgr = SessionManager(
+            state_dir=tunnel_cfg.get("session_dir", "/tmp/hyperagg_sessions"),
+            max_gap=tunnel_cfg.get("max_session_gap", 10000),
         )
 
         # Sequence counters
@@ -148,12 +104,13 @@ class TunnelClient:
 
         # TUN device and packet logger (set externally)
         self.tun = None
-        self.packet_logger = None  # Set by main.py for dashboard telemetry
+        self.packet_logger = None
 
         # State
         self._running = False
         self._keepalive_interval_ms = tunnel_cfg.get("keepalive_interval_ms", 1000)
         self._probe_interval_ms = config.get("scheduler", {}).get("probe_interval_ms", 100)
+        self._tier_reset_time = time.monotonic()
 
         # Metrics
         self.packets_sent_per_path: dict[int, int] = {}
@@ -192,12 +149,19 @@ class TunnelClient:
         self.packets_sent_per_path[path_id] = 0
         self._monitor.register_path(path_id)
 
+        # Module 2+4: init pacer and congestion control for this path
+        self._pacer.set_rate(path_id, 10_000_000)  # 10 MB/s default until estimated
+        self._congestion[path_id] = AIMDController(estimated_bw=10_000_000)
+
         logger.info(f"Path {path_id} ({interface}) registered")
 
     async def start(self) -> None:
         """Start all tunnel loops."""
         self._running = True
         set_connection_start()
+
+        # Module 7: create or resume session
+        self._session_mgr.create_session()
 
         # Send handshake
         await self._send_handshake()
@@ -309,17 +273,46 @@ class TunnelClient:
                     )
                     pkt.payload = encrypted
 
-                # Send
+                # Module 4: check tier budget (never drop realtime)
+                if tier != "realtime" and not self._tier_mgr.can_send(tier, len(fec_payload)):
+                    continue  # Budget exhausted for this tier
+
+                # Module 2: check pacer
                 wire = pkt.serialize()
+                if not self._pacer.can_send(pid, len(wire)):
+                    # Try to find another path from the decision
+                    sent_on_alt = False
+                    for alt in decision.assignments:
+                        if alt.path_id != pid and alt.send and alt.path_id in self._sockets:
+                            if self._pacer.can_send(alt.path_id, len(wire)):
+                                pid = alt.path_id
+                                sent_on_alt = True
+                                break
+                    if not sent_on_alt and not self._pacer.can_send(pid, len(wire)):
+                        continue  # All paths congested, skip
+
+                # Send
                 try:
                     self._sockets[pid].sendto(
                         wire, (self._server_addr, self._server_port)
                     )
+                    self._pacer.consume(pid, len(wire))
                     self._path_seqs[pid] = path_seq + 1
                     self.packets_sent_per_path[pid] = (
                         self.packets_sent_per_path.get(pid, 0) + 1
                     )
                     self._monitor.record_throughput(pid, len(wire))
+                    self._bw_estimator.record_ack(pid, len(wire))
+                    self._tier_mgr.record_send(tier, len(fec_payload))
+
+                    # Module 6: throughput accounting
+                    is_dup = fec_meta.get("replicate", False) and len(decision.assignments) > 1
+                    self._throughput.record_sent(
+                        len(wire),
+                        is_fec_parity=fec_meta.get("is_parity", False),
+                        is_duplicate=is_dup,
+                    )
+
                     if self.packet_logger:
                         ptype = "fec_parity" if fec_meta.get("is_parity") else "data"
                         self.packet_logger.log(
@@ -330,6 +323,25 @@ class TunnelClient:
                         )
                 except OSError as e:
                     logger.warning(f"Send failed on path {pid}: {e}")
+
+            # Module 7: periodic session state save
+            if self._global_seq % 100 == 0:
+                states = self._monitor.get_all_path_states()
+                self._session_mgr.update(
+                    global_seq=self._global_seq,
+                    path_seqs=dict(self._path_seqs),
+                    scheduler_mode=self._scheduler._mode,
+                    path_rtt_history={
+                        pid: list(s.rtt_history)
+                        for pid, s in states.items()
+                    },
+                )
+
+            # Module 4: reset tier window every 1 second
+            now = time.monotonic()
+            if now - self._tier_reset_time >= 1.0:
+                self._tier_mgr.reset_window()
+                self._tier_reset_time = now
 
             self._global_seq += 1
 
@@ -379,10 +391,28 @@ class TunnelClient:
         if pkt.is_control:
             return
 
+        # Module 2: record bandwidth from received data
+        self._bw_estimator.record_ack(path_id, len(data))
+
+        # Module 3: record successful receipt for adaptive FEC
+        self._fec.record_received()
+
+        # Module 4: successful receipt = no loss signal
+        if path_id in self._congestion:
+            self._congestion[path_id].on_success()
+
         # Dedup
         if self._reorder.is_duplicate(pkt.global_seq):
             self.duplicates_dropped += 1
             return
+
+        # Check for sequence gaps → loss signal for AIMD + adaptive FEC
+        if hasattr(self._reorder, '_next_seq') and pkt.global_seq > self._reorder._next_seq + 1:
+            gap = pkt.global_seq - self._reorder._next_seq - 1
+            for _ in range(min(gap, 5)):
+                self._fec.record_lost()
+                if path_id in self._congestion:
+                    self._congestion[path_id].on_loss()
 
         # Decrypt
         payload = pkt.payload
@@ -456,7 +486,7 @@ class TunnelClient:
             await asyncio.sleep(self._keepalive_interval_ms / 1000.0)
 
     async def _reorder_timeout_loop(self) -> None:
-        """Periodically check reorder buffer for timed-out packets."""
+        """Periodically check reorder buffer, update adaptive modules."""
         while self._running:
             delivered = self._reorder.check_timeouts()
             for payload in delivered:
@@ -464,13 +494,39 @@ class TunnelClient:
                 if self.tun and self.tun.is_open:
                     self.tun.write_packet_sync(payload)
 
-            # Also expire stale FEC groups
+            # Expire stale FEC groups
             self._fec.expire_groups()
 
             # Update FEC mode based on current loss
             states = self._monitor.get_all_path_states()
             path_loss = {pid: s.loss_pct for pid, s in states.items()}
             self._fec.update_mode(path_loss)
+
+            # Module 1: update adaptive reorder timeout from path differentials
+            path_rtts = {pid: s.avg_rtt_ms for pid, s in states.items() if s.is_alive}
+            path_jitters = {pid: s.jitter_ms for pid, s in states.items() if s.is_alive}
+            # Prefer OWD download differential if available (Module 5)
+            owd_data = self._owd.get_all_owd()
+            if owd_data and len(owd_data) >= 2:
+                path_downs = {int(pid): info["owd_down_ms"] for pid, info in owd_data.items()}
+                self._reorder.update_timeout(path_downs, path_jitters)
+            elif path_rtts:
+                self._reorder.update_timeout(path_rtts, path_jitters)
+
+            # Module 2: update pacer rates from bandwidth estimator
+            for pid in states:
+                bw = self._bw_estimator.get_estimated_bw(pid)
+                if bw > 0:
+                    self._pacer.set_rate(pid, bw)
+
+            # Module 4: update AIMD from bandwidth estimator
+            for pid, cc in self._congestion.items():
+                bw = self._bw_estimator.get_estimated_bw(pid)
+                if bw > 0:
+                    cc.update_estimated_bw(bw)
+            total_bw = sum(self._bw_estimator.get_estimated_bw(pid) for pid in states)
+            if total_bw > 0:
+                self._tier_mgr.update_capacity(total_bw)
 
             await asyncio.sleep(0.05)  # 50ms
 
@@ -519,7 +575,7 @@ class TunnelClient:
             return False
 
     def get_metrics(self) -> dict:
-        """Get all client metrics for dashboard."""
+        """Get all client metrics for dashboard, including all 7 modules."""
         states = self._monitor.get_all_path_states()
         return {
             "packets_sent_per_path": dict(self.packets_sent_per_path),
@@ -527,15 +583,9 @@ class TunnelClient:
             "fec_recoveries": self.fec_recoveries,
             "duplicates_dropped": self.duplicates_dropped,
             "reorder_buffer_depth": self._reorder.depth,
-            "per_path_rtt_ms": {
-                pid: s.avg_rtt_ms for pid, s in states.items()
-            },
-            "per_path_loss_pct": {
-                pid: s.loss_pct for pid, s in states.items()
-            },
-            "per_path_jitter_ms": {
-                pid: s.jitter_ms for pid, s in states.items()
-            },
+            "per_path_rtt_ms": {pid: s.avg_rtt_ms for pid, s in states.items()},
+            "per_path_loss_pct": {pid: s.loss_pct for pid, s in states.items()},
+            "per_path_jitter_ms": {pid: s.jitter_ms for pid, s in states.items()},
             "fec_mode": self._fec.current_mode,
             "fec_overhead_pct": self._fec.overhead_pct,
             "scheduler_mode": self._scheduler._mode,
@@ -543,6 +593,16 @@ class TunnelClient:
                 "decisions_total": self._scheduler.get_stats().decisions_total,
                 "avg_decision_time_us": self._scheduler.get_stats().avg_decision_time_us,
             },
+            # Module stats
+            "reorder": self._reorder.get_stats(),
+            "bandwidth": {pid: self._bw_estimator.get_estimated_bw_mbps(pid) for pid in states},
+            "pacer": self._pacer.get_stats(),
+            "congestion": {pid: cc.get_stats() for pid, cc in self._congestion.items()},
+            "owd": self._owd.get_stats(),
+            "throughput": self._throughput.compute(),
+            "tier_manager": self._tier_mgr.get_stats(),
+            "session": self._session_mgr.get_stats(),
+            "adaptive_fec": self._fec.get_adaptive_stats(),
         }
 
 

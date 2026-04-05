@@ -24,6 +24,7 @@ from hyperagg.tunnel.packet import (
 from hyperagg.tunnel.crypto import PacketCrypto
 from hyperagg.fec.fec_engine import FecEngine
 from hyperagg.scheduler.path_monitor import PathMonitor
+from hyperagg.tunnel.reorder_buffer import AdaptiveReorderBuffer
 
 logger = logging.getLogger("hyperagg.tunnel.server")
 
@@ -40,60 +41,7 @@ class ClientSession:
         self.packets_sent = 0
 
 
-class ReorderBuffer:
-    """Server-side reorder buffer (same logic as client)."""
-
-    def __init__(self, window_size: int = 1024, timeout_ms: float = 100.0):
-        self._window = window_size
-        self._timeout_ms = timeout_ms
-        self._buffer: dict[int, bytes] = {}
-        self._next_seq = 0
-        self._timestamps: dict[int, float] = {}
-        self._seen: set[int] = set()
-
-    def is_duplicate(self, global_seq: int) -> bool:
-        if global_seq < self._next_seq:
-            return True
-        return global_seq in self._seen
-
-    def insert(self, global_seq: int, payload: bytes) -> list[bytes]:
-        if self.is_duplicate(global_seq):
-            return []
-
-        self._seen.add(global_seq)
-        if len(self._seen) > self._window * 2:
-            cutoff = self._next_seq
-            self._seen = {s for s in self._seen if s >= cutoff}
-
-        self._buffer[global_seq] = payload
-        self._timestamps[global_seq] = time.monotonic()
-        return self._deliver_in_order()
-
-    def check_timeouts(self) -> list[bytes]:
-        now = time.monotonic()
-        cutoff = now - (self._timeout_ms / 1000.0)
-        delivered = []
-        while self._next_seq not in self._buffer:
-            if not self._buffer:
-                break
-            ts = self._timestamps.get(min(self._buffer.keys()), now)
-            if ts > cutoff:
-                break
-            self._next_seq += 1
-        delivered.extend(self._deliver_in_order())
-        return delivered
-
-    def _deliver_in_order(self) -> list[bytes]:
-        delivered = []
-        while self._next_seq in self._buffer:
-            delivered.append(self._buffer.pop(self._next_seq))
-            self._timestamps.pop(self._next_seq, None)
-            self._next_seq += 1
-        return delivered
-
-    @property
-    def depth(self) -> int:
-        return len(self._buffer)
+# Server uses the shared AdaptiveReorderBuffer from reorder_buffer.py
 
 
 class TunnelServer:
@@ -125,9 +73,9 @@ class TunnelServer:
         self._monitor = PathMonitor(config)
 
         # Reorder + dedup
-        self._reorder = ReorderBuffer(
+        self._reorder = AdaptiveReorderBuffer(
             window_size=tunnel_cfg.get("sequence_window", 1024),
-            timeout_ms=tunnel_cfg.get("reorder_timeout_ms", 100),
+            initial_timeout_ms=tunnel_cfg.get("reorder_timeout_ms", 100),
         )
 
         # Client sessions

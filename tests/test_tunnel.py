@@ -4,7 +4,8 @@ import os
 import pytest
 from hyperagg.tunnel.packet import HyperAggPacket, MAGIC, set_connection_start
 from hyperagg.tunnel.crypto import PacketCrypto
-from hyperagg.tunnel.client import TunnelClient, ReorderBuffer
+from hyperagg.tunnel.client import TunnelClient
+from hyperagg.tunnel.reorder_buffer import AdaptiveReorderBuffer
 from hyperagg.tunnel.server import TunnelServer
 
 
@@ -15,14 +16,14 @@ def init_time():
 
 class TestReorderBuffer:
     def test_in_order_delivery(self):
-        buf = ReorderBuffer(window_size=64)
+        buf = AdaptiveReorderBuffer(window_size=64)
         result = buf.insert(0, b"pkt0")
         assert result == [b"pkt0"]
         result = buf.insert(1, b"pkt1")
         assert result == [b"pkt1"]
 
     def test_out_of_order_buffering(self):
-        buf = ReorderBuffer(window_size=64)
+        buf = AdaptiveReorderBuffer(window_size=64)
         result = buf.insert(2, b"pkt2")
         assert result == []  # Gap: missing 0, 1
         result = buf.insert(1, b"pkt1")
@@ -31,14 +32,14 @@ class TestReorderBuffer:
         assert result == [b"pkt0", b"pkt1", b"pkt2"]
 
     def test_duplicate_detection(self):
-        buf = ReorderBuffer(window_size=64)
+        buf = AdaptiveReorderBuffer(window_size=64)
         buf.insert(0, b"pkt0")
         assert buf.is_duplicate(0)
         result = buf.insert(0, b"pkt0_dup")
         assert result == []  # Duplicate dropped
 
     def test_timeout_delivery(self):
-        buf = ReorderBuffer(window_size=64, timeout_ms=1)
+        buf = AdaptiveReorderBuffer(window_size=64, initial_timeout_ms=1, min_timeout_ms=1)
         buf.insert(1, b"pkt1")  # Gap at 0
         import time
         time.sleep(0.01)  # Wait for timeout
@@ -47,7 +48,7 @@ class TestReorderBuffer:
         assert b"pkt1" in delivered
 
     def test_depth(self):
-        buf = ReorderBuffer(window_size=64)
+        buf = AdaptiveReorderBuffer(window_size=64)
         buf.insert(5, b"pkt5")
         buf.insert(3, b"pkt3")
         assert buf.depth == 2
