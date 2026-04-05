@@ -1,0 +1,162 @@
+{
+  "name": "Highway To Rural",
+  "duration_ticks": 90,
+  "scenario": "highway_to_rural",
+  "hyperagg": {
+    "total_packets": 9000,
+    "delivered_packets": 15370,
+    "lost_packets": 466,
+    "recovered_by_fec": 37,
+    "effective_loss_pct": 5.18,
+    "avg_latency_ms": 47.6,
+    "p95_latency_ms": 108.9,
+    "max_disruption_ms": 1000,
+    "throughput_mbps": 1.9,
+    "recovery_events": [
+      {
+        "tick": 8,
+        "packets_recovered": 1,
+        "method": "reed_solomon_heavy"
+      },
+      {
+        "tick": 22,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 25,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 31,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 37,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 41,
+        "packets_recovered": 2,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 43,
+        "packets_recovered": 2,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 46,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 48,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 49,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 51,
+        "packets_recovered": 2,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 53,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 54,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 55,
+        "packets_recovered": 3,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 59,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 61,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 62,
+        "packets_recovered": 4,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 63,
+        "packets_recovered": 3,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 64,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 65,
+        "packets_recovered": 2,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 66,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 68,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 70,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 71,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 72,
+        "packets_recovered": 2,
+        "method": "reed_solomon"
+      }
+    ]
+  },
+  "mptcp": {
+    "total_packets": 9000,
+    "delivered_packets": 8915,
+    "lost_packets": 85,
+    "recovered_by_fec": 0,
+    "effective_loss_pct": 0.94,
+    "avg_latency_ms": 30.4,
+    "p95_latency_ms": 34.8,
+    "max_disruption_ms": 1000,
+    "throughput_mbps": 1.1,
+    "recovery_events": []
+  },
+  "improvement": {
+    "loss_reduction_pct": -4.24,
+    "latency_improvement_ms": -17.2,
+    "disruption_improvement_ms": 0,
+    "throughput_gain_mbps": 0.8,
+    "fec_recoveries": 37
+  }
+}

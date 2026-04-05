@@ -1,0 +1,82 @@
+{
+  "name": "Manchester \u2192 M62 \u2192 Pennines",
+  "duration_ticks": 90,
+  "scenario": "manchester_driving",
+  "hyperagg": {
+    "total_packets": 9000,
+    "delivered_packets": 16722,
+    "lost_packets": 642,
+    "recovered_by_fec": 26,
+    "effective_loss_pct": 7.13,
+    "avg_latency_ms": 44.2,
+    "p95_latency_ms": 108.4,
+    "max_disruption_ms": 1000,
+    "throughput_mbps": 2.1,
+    "recovery_events": [
+      {
+        "tick": 31,
+        "packets_recovered": 1,
+        "method": "xor"
+      },
+      {
+        "tick": 32,
+        "packets_recovered": 2,
+        "method": "xor"
+      },
+      {
+        "tick": 33,
+        "packets_recovered": 3,
+        "method": "xor"
+      },
+      {
+        "tick": 34,
+        "packets_recovered": 3,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 35,
+        "packets_recovered": 5,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 36,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 37,
+        "packets_recovered": 7,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 38,
+        "packets_recovered": 3,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 39,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      }
+    ]
+  },
+  "mptcp": {
+    "total_packets": 9000,
+    "delivered_packets": 6736,
+    "lost_packets": 2264,
+    "recovered_by_fec": 0,
+    "effective_loss_pct": 25.16,
+    "avg_latency_ms": 85.1,
+    "p95_latency_ms": 379.2,
+    "max_disruption_ms": 11000,
+    "throughput_mbps": 0.8,
+    "recovery_events": []
+  },
+  "improvement": {
+    "loss_reduction_pct": 18.03,
+    "latency_improvement_ms": 40.9,
+    "disruption_improvement_ms": 10000,
+    "throughput_gain_mbps": 1.3,
+    "fec_recoveries": 26
+  }
+}
