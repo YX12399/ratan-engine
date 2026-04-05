@@ -354,12 +354,18 @@ async def run_demo(args, config: dict) -> None:
     from hyperagg.scheduler.path_scheduler import PathScheduler
     from hyperagg.fec.fec_engine import FecEngine
     from hyperagg.tunnel.packet import set_connection_start
+    from hyperagg.tunnel.reorder_buffer import AdaptiveReorderBuffer
+    from hyperagg.scheduler.bandwidth_estimator import BandwidthEstimator, TokenBucketPacer
+    from hyperagg.scheduler.congestion_control import AIMDController, TierBandwidthManager
+    from hyperagg.scheduler.owd_estimator import OWDEstimator
+    from hyperagg.metrics.throughput_calculator import ThroughputCalculator
+    from hyperagg.tunnel.session import SessionManager
 
     logger.info("Starting HyperAgg in DEMO mode")
-    logger.info("Using REAL FEC engine + AI scheduler with simulated path measurements")
+    logger.info("Using REAL FEC + AI scheduler + all 7 networking modules")
     set_connection_start()
 
-    # Build real engine components
+    # Build ALL real engine components (same as TunnelClient uses)
     monitor = PathMonitor(config)
     monitor.register_path(0)
     monitor.register_path(1)
@@ -368,17 +374,53 @@ async def run_demo(args, config: dict) -> None:
     scheduler = PathScheduler(config, monitor, predictor)
     pkt_log = PacketLogger()
 
-    # Use a RealDemoController that wraps the actual components
-    sdn = RealDemoController(config, monitor, predictor, scheduler, fec)
+    # 7 networking modules
+    reorder = AdaptiveReorderBuffer(
+        window_size=config.get("tunnel", {}).get("sequence_window", 1024),
+        initial_timeout_ms=config.get("tunnel", {}).get("reorder_timeout_ms", 100),
+    )
+    bw_estimator = BandwidthEstimator(ewma_alpha=0.2, window_sec=1.0)
+    pacer = TokenBucketPacer()
+    pacer.set_rate(0, 5_000_000)  # 40 Mbps Starlink
+    pacer.set_rate(1, 2_000_000)  # 15 Mbps cellular
+    congestion = {
+        0: AIMDController(estimated_bw=5_000_000),
+        1: AIMDController(estimated_bw=2_000_000),
+    }
+    tier_mgr = TierBandwidthManager(total_capacity_bytes_per_sec=7_000_000)
+    owd = OWDEstimator(ewma_alpha=0.1)
+    throughput_calc = ThroughputCalculator(window_sec=5.0)
+    session_mgr = SessionManager(
+        state_dir="/tmp/hyperagg_demo_sessions",
+        save_interval_sec=5.0,
+    )
+    session_mgr.create_session()
+
+    sdn = RealDemoController(
+        config, monitor, predictor, scheduler, fec,
+        reorder, bw_estimator, pacer, congestion,
+        tier_mgr, owd, throughput_calc, session_mgr,
+    )
     ai_handler = ChatHandler(sdn)
     test_runner = TestRunner(sdn)
 
     # Start the simulation that feeds real measurements into real components
     sim_task = asyncio.create_task(
-        _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log)
+        _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log,
+                        reorder, bw_estimator, pacer, congestion,
+                        tier_mgr, owd, throughput_calc, session_mgr)
     )
 
-    app = create_dashboard_app(sdn, pkt_log, ai_handler, test_runner)
+    from hyperagg.testing.preflight import PreflightChecker
+    from hyperagg.testing.traffic_gen import TrafficGenerator
+    preflight = PreflightChecker(config)
+    traffic_gen = TrafficGenerator()
+
+    app = create_dashboard_app(
+        sdn, pkt_log, ai_handler, test_runner,
+        preflight_checker=preflight,
+        traffic_generator=traffic_gen,
+    )
 
     logger.info(f"Dashboard at http://localhost:{args.api_port}")
 
@@ -394,9 +436,12 @@ async def run_demo(args, config: dict) -> None:
 
 
 class RealDemoController:
-    """Demo controller using REAL engine components (FEC + scheduler)."""
+    """Demo controller using REAL engine components — all 7 modules."""
 
-    def __init__(self, config, monitor, predictor, scheduler, fec):
+    def __init__(self, config, monitor, predictor, scheduler, fec,
+                 reorder=None, bw_estimator=None, pacer=None,
+                 congestion=None, tier_mgr=None, owd=None,
+                 throughput=None, session_mgr=None):
         self._config = config
         self._start_time = time.monotonic()
         self._events: list[dict] = []
@@ -404,6 +449,15 @@ class RealDemoController:
         self._predictor = predictor
         self._scheduler = scheduler
         self._fec = fec
+        # 7 networking modules
+        self._reorder = reorder
+        self._bw_estimator = bw_estimator
+        self._pacer = pacer
+        self._congestion = congestion or {}
+        self._tier_mgr = tier_mgr
+        self._owd = owd
+        self._throughput = throughput
+        self._session_mgr = session_mgr
         self._metrics = {
             "packets_sent_per_path": {0: 0, 1: 0},
             "packets_received": 0,
@@ -437,7 +491,7 @@ class RealDemoController:
             }
 
         sched_stats = self._scheduler.get_stats()
-        return {
+        state = {
             "mode": "demo",
             "uptime_sec": round(time.monotonic() - self._start_time, 1),
             "running": True,
@@ -459,6 +513,27 @@ class RealDemoController:
             },
             "fec": self._fec.get_stats(),
         }
+
+        # Module stats (all 7 — same keys as SDNController with TunnelClient)
+        if self._bw_estimator:
+            state["bandwidth"] = {pid: self._bw_estimator.get_estimated_bw_mbps(pid) for pid in paths}
+        if self._pacer:
+            state["pacer"] = self._pacer.get_stats()
+        if self._congestion:
+            state["congestion"] = {pid: cc.get_stats() for pid, cc in self._congestion.items()}
+        if self._owd:
+            state["owd"] = self._owd.get_stats()
+        if self._reorder:
+            state["reorder"] = self._reorder.get_stats()
+        if self._throughput:
+            state["throughput"] = self._throughput.compute()
+        if self._tier_mgr:
+            state["tier_manager"] = self._tier_mgr.get_stats()
+        if self._session_mgr:
+            state["session"] = self._session_mgr.get_stats()
+        state["adaptive_fec"] = self._fec.get_adaptive_stats()
+
+        return state
 
     def get_events(self, last_n: int = 50) -> list[dict]:
         return self._events[-last_n:]
@@ -493,7 +568,10 @@ class RealDemoController:
         logger.info(f"[{category}] {message}")
 
 
-async def _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log) -> None:
+async def _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log,
+                          reorder=None, bw_estimator=None, pacer=None,
+                          congestion=None, tier_mgr=None, owd=None,
+                          throughput_calc=None, session_mgr=None) -> None:
     """
     Demo loop using REAL engine components.
 
@@ -513,8 +591,8 @@ async def _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log) -> N
     global_seq = 0
     tick = 0
 
-    sdn._emit_event("system", "HyperAgg demo started — real FEC + AI scheduler")
-    sdn._emit_event("system", "Using actual XOR/RS math and delivery probability predictions")
+    sdn._emit_event("system", "HyperAgg demo — Manchester → M62 → Pennines scenario")
+    sdn._emit_event("system", "Real FEC math + AI scheduler + all 7 networking modules active")
 
     while True:
         try:
@@ -527,7 +605,7 @@ async def _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log) -> N
                 cell_rtt = max(10, 60 + random.gauss(0, 8))
                 cell_loss = random.random() < 0.03
                 if phase_tick == 0 and tick > 0:
-                    sdn._emit_event("system", "Cycle restart — both paths healthy")
+                    sdn._emit_event("system", "M62 Highway — both paths strong, full aggregation")
             elif phase_tick < 45:
                 d = (phase_tick - 30) / 15.0
                 sl_rtt = max(5, (30 + d * 170) + random.gauss(0, 3 + d * 40))
@@ -535,14 +613,14 @@ async def _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log) -> N
                 cell_rtt = max(10, 60 + random.gauss(0, 8))
                 cell_loss = random.random() < 0.03
                 if phase_tick == 30:
-                    sdn._emit_event("path", "Starlink degrading — RTT climbing")
+                    sdn._emit_event("path", "Approaching Woodhead Tunnel — Starlink signal degrading")
             elif phase_tick < 55:
                 sl_rtt = max(5, 500 + random.gauss(0, 100))
                 sl_loss = random.random() < 0.80
                 cell_rtt = max(10, 65 + random.gauss(0, 10))
                 cell_loss = random.random() < 0.03
                 if phase_tick == 45:
-                    sdn._emit_event("path", "STARLINK DOWN — path unresponsive")
+                    sdn._emit_event("path", "TUNNEL ENTRY — Starlink blocked, cellular-only. FEC covering gap.")
             elif phase_tick < 70:
                 r = (phase_tick - 55) / 15.0
                 sl_rtt = max(5, (200 - r * 170) + random.gauss(0, 40 - r * 37))
@@ -550,7 +628,7 @@ async def _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log) -> N
                 cell_rtt = max(10, 60 + random.gauss(0, 8))
                 cell_loss = random.random() < 0.03
                 if phase_tick == 55:
-                    sdn._emit_event("path", "Starlink recovering")
+                    sdn._emit_event("path", "Tunnel exit — Starlink recovering. AI re-integrating path.")
             else:
                 sl_rtt = max(5, 30 + random.gauss(0, 3))
                 sl_loss = random.random() < 0.01
@@ -641,6 +719,75 @@ async def _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log) -> N
 
             # Expire stale FEC groups
             fec.expire_groups()
+
+            # --- Feed all 7 networking modules with scenario data ---
+            states = monitor.get_all_path_states()
+
+            # Module 1: adaptive reorder from path differentials
+            if reorder:
+                path_rtts = {pid: s.avg_rtt_ms for pid, s in states.items() if s.is_alive}
+                path_jitters = {pid: s.jitter_ms for pid, s in states.items() if s.is_alive}
+                reorder.update_timeout(path_rtts, path_jitters)
+
+            # Module 2: bandwidth estimation from simulated send volumes
+            if bw_estimator:
+                sl_bytes = pkts_this_tick * 1380 * 0.6  # ~60% on Starlink
+                cell_bytes = pkts_this_tick * 1380 * 0.4
+                bw_estimator.record_ack(0, int(sl_bytes))
+                bw_estimator.record_ack(1, int(cell_bytes))
+                if pacer:
+                    for pid in [0, 1]:
+                        bw = bw_estimator.get_estimated_bw(pid)
+                        if bw > 0:
+                            pacer.set_rate(pid, bw)
+
+            # Module 4: AIMD congestion signals
+            if congestion:
+                if sl_loss:
+                    congestion[0].on_loss()
+                else:
+                    congestion[0].on_success()
+                if cell_loss:
+                    congestion[1].on_loss()
+                else:
+                    congestion[1].on_success()
+                # Update from BW estimator
+                if bw_estimator:
+                    for pid, cc in congestion.items():
+                        bw = bw_estimator.get_estimated_bw(pid)
+                        if bw > 0:
+                            cc.update_estimated_bw(bw)
+
+            # Module 4b: tier manager
+            if tier_mgr and bw_estimator:
+                total_bw = sum(bw_estimator.get_estimated_bw(pid) for pid in [0, 1])
+                if total_bw > 0:
+                    tier_mgr.update_capacity(total_bw)
+                tier_mgr.reset_window()
+
+            # Module 5: OWD with Starlink asymmetry (upload ~2x slower)
+            if owd:
+                owd.record_rtt_with_asymmetry(0, sl_rtt, up_ratio=0.33)
+                owd.record_rtt_with_asymmetry(1, cell_rtt, up_ratio=0.45)
+
+            # Module 6: throughput accounting
+            if throughput_calc:
+                for _ in range(pkts_this_tick):
+                    throughput_calc.record_sent(1380)
+                # Some FEC parity
+                for _ in range(pkts_this_tick // 5):
+                    throughput_calc.record_sent(1380, is_fec_parity=True)
+
+            # Module 7: session state
+            if session_mgr:
+                session_mgr.update(
+                    global_seq=global_seq,
+                    scheduler_mode=scheduler._mode,
+                    path_rtt_history={
+                        pid: list(s.rtt_history[-10:])
+                        for pid, s in states.items()
+                    },
+                )
 
             tick += 1
             await asyncio.sleep(1.0)

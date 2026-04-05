@@ -81,6 +81,10 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 .form-row label{font-size:13px;color:var(--g500);min-width:80px}
 .test-active{background:var(--blue-50);border:1px solid var(--blue);border-radius:6px;padding:12px;margin:12px 0;display:flex;align-items:center;gap:16px;font-size:14px}
 .suggested-change{background:var(--yellow-light);border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin:4px 0;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.mini-card{background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px}
+.mini-title{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:4px}
+.mini-value{font-size:20px;font-weight:700;margin-bottom:2px}
+.mini-detail{font-size:11px;color:var(--muted);line-height:1.6}
 @media(max-width:900px){.grid-4{grid-template-columns:1fr 1fr}.grid-2{grid-template-columns:1fr}}
 </style>
 </head>
@@ -110,6 +114,18 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 <h3>Connected Clients</h3>
 <div id="conn-clients"><p class="waiting">Waiting...</p></div>
 </div>
+<div class="card">
+<h3>Engine Status</h3>
+<div id="conn-engine">
+<div class="metric-row"><span class="label">Session</span><span class="value" id="conn-session">--</span></div>
+<div class="metric-row"><span class="label">Adaptive FEC</span><span class="value" id="conn-afec">--</span></div>
+</div>
+</div>
+<div class="card">
+<h3>Pre-Flight Checks</h3>
+<button class="primary" onclick="runPreflight()">Run Checks</button>
+<div id="preflight-results" style="margin-top:8px"></div>
+</div>
 </div>
 <div class="card">
 <h3>Connect a Device</h3>
@@ -129,6 +145,12 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 <div class="card"><h3>FEC Recoveries</h3><div class="big-num" id="m-fec">--</div></div>
 </div>
 <div class="grid-2" id="mon-paths"><p class="waiting">Waiting for path data...</p></div>
+<details class="collapsible" open>
+<summary>Engine Internals</summary>
+<div class="inner">
+<div class="grid-4" id="engine-stats"></div>
+</div>
+</details>
 <div class="grid-2">
 <div class="card">
 <h3>Live Packet Stream</h3>
@@ -202,6 +224,26 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 </div>
 <button class="secondary" onclick="setVpsUrl()" style="margin-top:4px">Save &amp; Reconnect</button>
 <span id="vps-url-ok" style="font-size:12px;margin-left:8px"></span>
+</div>
+</details>
+</div>
+<div class="card">
+<details class="collapsible">
+<summary>Network Impairment (Demo)</summary>
+<div class="inner" id="impair-controls"></div>
+</details>
+</div>
+<div class="card">
+<details class="collapsible">
+<summary>Traffic Generator</summary>
+<div class="inner">
+<div class="form-row">
+<select id="tg-mode"><option value="mixed">Mixed (JLR)</option><option value="bulk">Bulk</option><option value="realtime">Realtime</option></select>
+<select id="tg-dur"><option value="30">30s</option><option value="60">60s</option><option value="300">5m</option></select>
+<button class="primary" onclick="startTraffic()">Start</button>
+<button class="secondary" onclick="stopTraffic()">Stop</button>
+</div>
+<div id="tg-status"></div>
 </div>
 </details>
 </div>
@@ -382,7 +424,12 @@ function renderMonitor(s){
         ' &middot; Trend: <span class="'+tc+'">'+esc(pr.trend||"--")+'</span>'+
         ' &middot; '+esc(pr.recommended_action||"")+'</div>'+
         '<div style="margin-top:8px;font-size:12px;color:var(--g500)">Traffic share: '+share+'%</div>'+
-        '<div class="share-bar"><div style="width:'+share+'%;background:'+pathColor+'"></div></div></div>';
+        '<div class="share-bar"><div style="width:'+share+'%;background:'+pathColor+'"></div></div>';
+      var pbw = (s.bandwidth || {})[k] || 0;
+      var pcc = ((s.congestion || {})[k]) || {};
+      h += '<div class="metric-row"><span class="label">BW Estimate</span><span class="val">' + num(pbw) + ' Mbps</span></div>';
+      h += '<div class="metric-row"><span class="label">Send Rate</span><span class="val">' + num(pcc.send_rate_mbps) + ' Mbps (' + num(pcc.utilization_pct) + '%)</span></div>';
+      h += '</div>';
     });
     $("mon-paths").innerHTML=h;
   }
@@ -408,6 +455,76 @@ function renderMonitor(s){
       eh+='<div class="ev"><span class="ev-time">'+fmtTime(e.timestamp)+'</span><span class="ev-cat">'+esc(e.category)+'</span><span>'+esc(e.message)+'</span></div>';
     });
     $("event-log").innerHTML=eh;
+  }
+
+  // Engine Internals (4 cards)
+  var ei = '';
+  var tp = s.throughput || {};
+  var re = s.reorder || {};
+  var tm = s.tier_manager || {};
+  var ow = s.owd || {};
+  var bw = s.bandwidth || {};
+
+  // Card 1: Throughput Efficiency
+  var eff = tp.efficiency_pct || 0;
+  var effColor = eff > 80 ? 'var(--green)' : eff > 50 ? 'var(--yellow)' : 'var(--red)';
+  ei += '<div class="mini-card"><div class="mini-title">Throughput</div>';
+  ei += '<div class="mini-value">' + num(tp.effective_throughput_mbps) + ' / ' + num(tp.raw_throughput_mbps) + ' Mbps</div>';
+  ei += '<div class="mini-detail" style="color:'+effColor+'">Efficiency: ' + num(eff) + '%</div>';
+  ei += '<div class="mini-detail">FEC: ' + num((tp.fec_overhead_ratio||0)*100) + '% | Reorder: ' + num(tp.reorder_cost_mbps) + ' Mbps</div></div>';
+
+  // Card 2: Congestion Control
+  var cc = s.congestion || {};
+  ei += '<div class="mini-card"><div class="mini-title">Congestion</div>';
+  for (var cpid in cc) { var c = cc[cpid];
+    ei += '<div class="mini-detail">' + pathLabel(cpid) + ': ' + num(c.send_rate_mbps) + ' Mbps (' + num(c.utilization_pct) + '%)</div>';
+  }
+  var tl = (tm.tier_limits_mbps || {}); var tu = (tm.tier_usage_mbps || {});
+  ei += '<div class="mini-detail" style="margin-top:4px">RT: ' + num((tu.realtime||0)) + '/' + num((tl.realtime||0)) + ' | Strm: ' + num((tu.streaming||0)) + '/' + num((tl.streaming||0)) + '</div></div>';
+
+  // Card 3: Reorder Buffer
+  ei += '<div class="mini-card"><div class="mini-title">Reorder Buffer</div>';
+  ei += '<div class="mini-value">' + num(re.timeout_ms) + ' ms</div>';
+  ei += '<div class="mini-detail">Depth: ' + (re.depth||0) + ' pkts | Late: ' + num(re.late_delivery_pct) + '%</div></div>';
+
+  // Card 4: Path Intelligence (OWD)
+  ei += '<div class="mini-card"><div class="mini-title">Path Intelligence</div>';
+  var owp = (ow.paths || {});
+  for (var opid in owp) { var o = owp[opid];
+    ei += '<div class="mini-detail">' + pathLabel(opid) + ': ↑' + num(o.owd_up_ms) + 'ms ↓' + num(o.owd_down_ms) + 'ms (BW: ' + num((bw[opid]||0)) + ' Mbps)</div>';
+  }
+  ei += '<div class="mini-detail">Download diff: ' + num(ow.download_differential_ms) + ' ms</div></div>';
+
+  $('engine-stats').innerHTML = ei;
+
+  // Connect tab: session + adaptive FEC
+  var sess = s.session || {};
+  var afec = s.adaptive_fec || {};
+  $('conn-session').textContent = (sess.status || '--') + (sess.session_id ? ' | ' + sess.session_id : '') + (sess.age_sec ? ' | ' + fmtDur(sess.age_sec) : '');
+  $('conn-afec').textContent = (afec.mode || '--') + ' (' + (afec.data_shards||'?') + '+' + (afec.parity_shards||'?') + ') burst p95=' + ((afec.burst_stats||{}).p95_burst_length||0) + ' overhead=' + num(afec.overhead_pct) + '%';
+
+  // Impairment controls (dynamic per-path buttons)
+  var imp = s.impairment || {};
+  var ih = '';
+  for (var ipid in (s.paths || {})) {
+    var istate = imp[ipid] || {action:'clear', detail:'No impairment'};
+    ih += '<div class="form-row" style="margin-bottom:6px">';
+    ih += '<span style="min-width:80px;font-weight:600">' + pathLabel(ipid) + '</span> ';
+    ih += '<button class="secondary" onclick="apiPost(\'/api/impair\',{path_id:'+ipid+',action:\'latency\',value_ms:200})" style="font-size:11px">+200ms</button> ';
+    ih += '<button class="secondary" onclick="apiPost(\'/api/impair\',{path_id:'+ipid+',action:\'loss\',value_pct:10})" style="font-size:11px">+10% loss</button> ';
+    ih += '<button class="secondary" onclick="apiPost(\'/api/impair\',{path_id:'+ipid+',action:\'down\'})" style="font-size:11px;color:var(--red)">Block</button> ';
+    ih += '<button class="secondary" onclick="apiPost(\'/api/impair\',{path_id:'+ipid+',action:\'clear\'})" style="font-size:11px">Clear</button> ';
+    ih += '<span style="font-size:11px;color:var(--muted)">' + esc(istate.detail) + '</span>';
+    ih += '</div>';
+  }
+  $('impair-controls').innerHTML = ih || '<p class="waiting">No paths</p>';
+
+  // Traffic gen status
+  var tgs = s.traffic || {};
+  if (tgs.running) {
+    $('tg-status').innerHTML = '<div style="margin-top:6px;font-size:13px;color:var(--green)">Running: ' + tgs.mode + ' | ' + num(tgs.remaining_sec) + 's left | ' + num(tgs.rate_mbps) + ' Mbps</div>';
+  } else {
+    $('tg-status').textContent = '';
   }
 }
 
@@ -443,6 +560,29 @@ function flash(id,ok){
   var el=$(id);el.textContent=ok?"Done":"Failed";
   setTimeout(function(){el.textContent=""},2000);
 }
+
+// Preflight
+window.runPreflight = function() {
+  $('preflight-results').innerHTML = '<p class="waiting">Running checks...</p>';
+  fetch(API_BASE+'/api/preflight', {method:'POST'}).then(function(r){return r.json()}).then(function(d) {
+    var h = '';
+    for (var name in d) {
+      var c = d[name];
+      var icon = c.status === 'pass' ? '\u2713' : c.status === 'warn' ? '\u26A0' : '\u2717';
+      var color = c.status === 'pass' ? 'var(--green)' : c.status === 'warn' ? 'var(--yellow)' : 'var(--red)';
+      h += '<div style="font-size:13px;padding:3px 0"><span style="color:'+color+';font-weight:700;margin-right:6px">'+icon+'</span>'+name+': '+esc(c.detail)+'</div>';
+    }
+    $('preflight-results').innerHTML = h;
+  }).catch(function(e){ $('preflight-results').innerHTML = '<p style="color:var(--red)">Error: '+e+'</p>' });
+};
+
+// Traffic generator
+window.startTraffic = function() {
+  var mode = $('tg-mode').value;
+  var dur = parseInt($('tg-dur').value);
+  apiPost('/api/traffic/start', {mode:mode, duration_sec:dur});
+};
+window.stopTraffic = function() { apiPost('/api/traffic/stop', {}); };
 
 // Chat
 window.sendChat=function(){
@@ -532,6 +672,7 @@ function loadTests(){
 }
 
 // Helpers
+function pathLabel(id){return pathLabels[id]||("Path "+id)}
 function num(v){return v!=null?Number(v).toFixed(1):"--"}
 function esc(s){if(!s)return"";var d=document.createElement("div");d.textContent=String(s);return d.innerHTML}
 function fmtDur(sec){if(sec==null)return"--";sec=Math.floor(sec);var m=Math.floor(sec/60),sv=sec%60;

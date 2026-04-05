@@ -62,9 +62,22 @@ class ABTestRequest(BaseModel):
     name: str
     duration_minutes: float = 1.0
     duration_sec: Optional[float] = None
-    variant_a: dict = {}  # e.g. {"scheduler_mode": "ai"}
-    variant_b: dict = {}  # e.g. {"scheduler_mode": "weighted"}
+    variant_a: dict = {}
+    variant_b: dict = {}
     description: str = ""
+
+
+class ImpairRequest(BaseModel):
+    path_id: int
+    action: str  # latency, loss, down, clear
+    value_ms: Optional[int] = None
+    value_pct: Optional[int] = None
+
+
+class TrafficRequest(BaseModel):
+    mode: str = "mixed"  # bulk, realtime, mixed
+    duration_sec: int = 60
+    bitrate_kbps: int = 2000
 
 
 def create_dashboard_app(
@@ -72,6 +85,9 @@ def create_dashboard_app(
     packet_logger=None,
     chat_handler=None,
     test_runner=None,
+    preflight_checker=None,
+    impairment_controller=None,
+    traffic_generator=None,
 ) -> FastAPI:
     """Create the FastAPI app with all dashboard routes."""
 
@@ -260,6 +276,58 @@ def create_dashboard_app(
         if not tests:
             return None
         return tests.get_test(test_id)
+
+    # ── Preflight, Impairment, Traffic Gen ──
+
+    pf = preflight_checker
+    imp = impairment_controller
+    tg = traffic_generator
+
+    @app.post("/api/preflight")
+    async def run_preflight():
+        if not pf:
+            return {"error": "Preflight checker not initialized"}
+        return await pf.run_all_checks()
+
+    @app.post("/api/impair")
+    async def apply_impairment(req: ImpairRequest):
+        if not imp:
+            return {"error": "Impairment controller not available (need root)"}
+        kwargs = {}
+        if req.value_ms:
+            kwargs["value_ms"] = req.value_ms
+        if req.value_pct:
+            kwargs["value_pct"] = req.value_pct
+        return imp.apply(req.path_id, req.action, **kwargs)
+
+    @app.get("/api/impair")
+    async def get_impairment():
+        if not imp:
+            return {}
+        return imp.get_state()
+
+    @app.post("/api/traffic/start")
+    async def start_traffic(req: TrafficRequest):
+        if not tg:
+            return {"error": "Traffic generator not initialized"}
+        try:
+            tun = ctrl.tunnel.tun if hasattr(ctrl, "tunnel") and hasattr(ctrl.tunnel, "tun") else None
+            await tg.start(req.mode, req.duration_sec, req.bitrate_kbps, tun)
+            return {"status": "started", "mode": req.mode}
+        except RuntimeError as e:
+            return {"error": str(e)}
+
+    @app.post("/api/traffic/stop")
+    async def stop_traffic():
+        if tg:
+            await tg.stop()
+        return {"status": "stopped"}
+
+    @app.get("/api/traffic/status")
+    async def traffic_status():
+        if not tg:
+            return {"running": False}
+        return tg.get_status()
 
     # ── WebSocket for live updates ──
 
