@@ -6,371 +6,539 @@
 <title>RATAN HyperAgg Dashboard</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--blue:#2563eb;--blue-light:#dbeafe;--green:#16a34a;--yellow:#ca8a04;--red:#dc2626;--gray-50:#f9fafb;--gray-100:#f3f4f6;--gray-200:#e5e7eb;--gray-300:#d1d5db;--gray-500:#6b7280;--gray-700:#374151;--gray-900:#111827;--sidebar-w:200px}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--gray-50);color:var(--gray-900);font-variant-numeric:tabular-nums;display:grid;grid-template-columns:var(--sidebar-w) 1fr;min-height:100vh}
-aside{background:#fff;border-right:1px solid var(--gray-200);padding:20px 0;display:flex;flex-direction:column;position:fixed;width:var(--sidebar-w);height:100vh;overflow-y:auto}
-aside .logo{padding:0 16px 20px;font-size:17px;font-weight:700;color:var(--blue);border-bottom:1px solid var(--gray-200)}
-aside .logo span{color:var(--gray-500);font-weight:400;font-size:12px;display:block;margin-top:2px}
-aside nav{padding:12px 0}
-aside nav a{display:block;padding:8px 16px;color:var(--gray-700);text-decoration:none;font-size:14px;border-left:3px solid transparent;cursor:pointer}
-aside nav a:hover{background:var(--gray-100)}
-aside nav a.active{border-left-color:var(--blue);color:var(--blue);background:var(--blue-light);font-weight:600}
-main{margin-left:var(--sidebar-w);padding:24px;min-width:0}
+:root{--blue:#2563eb;--blue-light:#dbeafe;--blue-50:#eff6ff;--green:#16a34a;--green-light:#dcfce7;
+--yellow:#ca8a04;--yellow-light:#fef9c3;--red:#dc2626;--red-light:#fee2e2;--purple:#7c3aed;
+--g50:#f9fafb;--g100:#f3f4f6;--g200:#e5e7eb;--g300:#d1d5db;--g500:#6b7280;--g700:#374151;--g900:#111827}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--g50);
+color:var(--g900);font-variant-numeric:tabular-nums;min-height:100vh}
+header{background:#fff;border-bottom:1px solid var(--g200);padding:0 24px;display:flex;align-items:center;height:56px;gap:32px}
+header .logo{font-size:17px;font-weight:700;color:var(--blue);white-space:nowrap}
+header .logo span{color:var(--g500);font-weight:400;font-size:12px;margin-left:8px}
+nav{display:flex;gap:4px;height:100%}
+nav button{background:none;border:none;padding:0 16px;font-size:14px;font-weight:500;color:var(--g500);
+cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+nav button:hover{color:var(--g700)}
+nav button.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.status-dot.ok{background:var(--green)}.status-dot.off{background:var(--g300)}
+main{padding:24px;max-width:1400px;margin:0 auto}
 .page{display:none}.page.active{display:block}
-.conn-badge{display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700;letter-spacing:.5px}
-.badge-ok{background:#dcfce7;color:var(--green)}.badge-degraded{background:#fef9c3;color:var(--yellow)}.badge-offline{background:#fee2e2;color:var(--red)}
-.card{background:#fff;border:1px solid var(--gray-200);border-radius:8px;padding:16px;margin-bottom:16px}
-.card h3{font-size:14px;color:var(--gray-500);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
+.card{background:#fff;border:1px solid var(--g200);border-radius:8px;padding:16px;margin-bottom:16px}
+.card h3{font-size:13px;color:var(--g500);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
 .metric-row{display:flex;justify-content:space-between;padding:4px 0;font-size:14px}
-.metric-row .label{color:var(--gray-500)}.metric-row .val{font-weight:600}
-.quality-bar{height:8px;border-radius:4px;background:var(--gray-200);margin-top:6px;overflow:hidden}
+.metric-row .label{color:var(--g500)}.metric-row .val{font-weight:600}
+.big-num{font-size:28px;font-weight:700;color:var(--g900)}.big-num small{font-size:13px;color:var(--g500);font-weight:400}
+.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;letter-spacing:.3px}
+.badge-green{background:var(--green-light);color:var(--green)}
+.badge-yellow{background:var(--yellow-light);color:var(--yellow)}
+.badge-gray{background:var(--g100);color:var(--g500)}
+.badge-red{background:var(--red-light);color:var(--red)}
+.quality-bar{height:8px;border-radius:4px;background:var(--g200);margin-top:6px;overflow:hidden}
 .quality-bar-inner{height:100%;border-radius:4px;transition:width .3s}
-.pred{font-size:12px;color:var(--gray-500);margin-top:6px}
-.pred .trend-stable{color:var(--green)}.pred .trend-degrading{color:var(--red)}.pred .trend-improving{color:var(--blue)}
-.traffic-bar{height:6px;border-radius:3px;background:var(--gray-200);margin-top:6px}
-.traffic-bar-inner{height:100%;border-radius:3px;background:var(--blue);transition:width .3s}
+.share-bar{height:6px;border-radius:3px;background:var(--g200);margin-top:4px;overflow:hidden;display:flex}
+.share-bar div{height:100%;transition:width .3s}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:6px 8px;border-bottom:2px solid var(--gray-200);color:var(--gray-500);font-size:12px;text-transform:uppercase}
-td{padding:5px 8px;border-bottom:1px solid var(--gray-100)}
-tr.path-0 td:first-child{border-left:3px solid var(--blue)}
-tr.path-1 td:first-child{border-left:3px solid #8b5cf6}
-tr.fec-recovery{background:#f0fdf4}
-.big-num{font-size:40px;font-weight:700;color:var(--blue)}
-.big-label{font-size:13px;color:var(--gray-500);margin-top:2px}
-.event-item{padding:6px 0;border-bottom:1px solid var(--gray-100);font-size:13px}
-.event-item .ev-time{color:var(--gray-500);margin-right:8px;font-size:12px}
-.event-item .ev-cat{font-weight:600;margin-right:6px;text-transform:uppercase;font-size:11px;color:var(--blue)}
-.agg-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
-.agg-stat{text-align:center;padding:12px}.agg-stat .val{font-size:24px;font-weight:700;color:var(--gray-900)}.agg-stat .lbl{font-size:12px;color:var(--gray-500);margin-top:2px}
-select{padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:14px;background:#fff}
-button.btn{padding:6px 16px;border:none;border-radius:6px;background:var(--blue);color:#fff;font-size:14px;cursor:pointer;font-weight:600}
-button.btn:hover{opacity:.9}
-.config-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
-.config-row label{width:120px;font-size:14px;color:var(--gray-700)}
-.waiting{color:var(--gray-500);font-style:italic;padding:20px 0}
-@media(max-width:900px){:root{--sidebar-w:160px}.grid-2{grid-template-columns:1fr}}
+th{text-align:left;padding:6px 8px;border-bottom:2px solid var(--g200);color:var(--g500);font-weight:600;font-size:12px;text-transform:uppercase}
+td{padding:5px 8px;border-bottom:1px solid var(--g100)}
+tr.recovered td{background:var(--green-light)}
+tr.path-0 td:nth-child(2){color:var(--blue);font-weight:600}
+tr.path-1 td:nth-child(2){color:var(--purple);font-weight:600}
+.trend-stable{color:var(--green)}.trend-degrading{color:var(--red)}.trend-improving{color:var(--blue)}
+.pred{font-size:12px;color:var(--g500);margin-top:6px}
+.cmd-box{background:var(--g900);color:#e5e7eb;padding:12px 16px;border-radius:6px;font-family:"SF Mono",Monaco,Consolas,monospace;
+font-size:13px;overflow-x:auto;position:relative;line-height:1.6}
+.cmd-box .copy-btn{position:absolute;top:8px;right:8px;background:var(--g700);color:#fff;border:none;
+padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer}
+.cmd-box .copy-btn:hover{background:var(--g500)}
+button.primary{background:var(--blue);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;
+font-weight:600;cursor:pointer;transition:background .15s}
+button.primary:hover{background:#1d4ed8}
+button.secondary{background:var(--g100);color:var(--g700);border:1px solid var(--g200);padding:8px 16px;
+border-radius:6px;font-size:13px;font-weight:500;cursor:pointer}
+button.secondary:hover{background:var(--g200)}
+button.danger{background:var(--red);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+select,input[type="text"]{padding:7px 10px;border:1px solid var(--g200);border-radius:6px;font-size:13px;
+background:#fff;color:var(--g900);font-family:inherit}
+select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-light)}
+.collapsible summary{cursor:pointer;font-weight:600;font-size:14px;padding:8px 0;color:var(--g700);list-style:none;display:flex;align-items:center;gap:8px}
+.collapsible summary::before{content:"\25B6";font-size:10px;transition:transform .15s}
+.collapsible[open] summary::before{transform:rotate(90deg)}
+.collapsible .inner{padding:12px 0 8px}
+.chat-area{height:280px;overflow-y:auto;border:1px solid var(--g200);border-radius:6px;padding:12px;margin-bottom:12px;background:var(--g50)}
+.chat-msg{margin-bottom:10px;font-size:13px;line-height:1.5}
+.chat-msg.user{text-align:right}.chat-msg.user .bubble{background:var(--blue);color:#fff;display:inline-block;padding:6px 12px;border-radius:12px 12px 2px 12px;max-width:80%}
+.chat-msg.ai .bubble{background:#fff;border:1px solid var(--g200);display:inline-block;padding:6px 12px;border-radius:12px 12px 12px 2px;max-width:80%;text-align:left}
+.chat-input-row{display:flex;gap:8px}
+.chat-input-row input{flex:1}
+.event-log{max-height:200px;overflow-y:auto;font-size:13px}
+.event-log .ev{padding:4px 0;border-bottom:1px solid var(--g100);display:flex;gap:12px}
+.event-log .ev-time{color:var(--g500);white-space:nowrap;min-width:70px}
+.event-log .ev-cat{font-weight:600;min-width:70px;color:var(--blue)}
+.waiting{color:var(--g500);font-style:italic;padding:20px;text-align:center}
+.form-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.form-row label{font-size:13px;color:var(--g500);min-width:80px}
+.test-active{background:var(--blue-50);border:1px solid var(--blue);border-radius:6px;padding:12px;margin:12px 0;display:flex;align-items:center;gap:16px;font-size:14px}
+.suggested-change{background:var(--yellow-light);border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin:4px 0;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+@media(max-width:900px){.grid-4{grid-template-columns:1fr 1fr}.grid-2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<aside>
-  <div class="logo">RATAN HyperAgg<span>Bonding Dashboard</span></div>
-  <nav id="nav">
-    <a data-page="aggregation" class="active">Aggregation</a>
-    <a data-page="paths">Paths</a>
-    <a data-page="fec">FEC</a>
-    <a data-page="scheduler">AI Scheduler</a>
-    <a data-page="events">Events</a>
-    <a data-page="config">Config</a>
-  </nav>
-  <div style="margin-top:auto;padding:12px 16px;font-size:11px;color:var(--gray-500)">
-    <span id="ws-status">WS: connecting...</span><br>
-    Uptime: <span id="uptime">--</span>
-  </div>
-</aside>
-
+<header>
+<div class="logo">RATAN HyperAgg<span>Multi-Path Aggregation</span></div>
+<nav id="nav">
+<button data-tab="connect">Connect</button>
+<button data-tab="monitor" class="active">Monitor</button>
+<button data-tab="tune">Tune</button>
+<button data-tab="analyze">Analyze</button>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--g500)">
+<span id="hdr-mode">--</span>
+<span class="status-dot off" id="hdr-dot"></span>
+</div>
+</header>
 <main>
-  <!-- AGGREGATION PAGE -->
-  <div id="page-aggregation" class="page active">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
-      <h2>Aggregation Overview</h2>
-      <span id="conn-badge" class="conn-badge badge-offline">OFFLINE</span>
-    </div>
-    <div id="path-cards" class="grid-2"><div class="waiting">Waiting for data...</div></div>
-    <div class="card" style="margin-top:8px">
-      <h3>Aggregate Metrics</h3>
-      <div id="agg-stats" class="agg-stats"><div class="waiting">Waiting...</div></div>
-    </div>
-    <div class="card">
-      <h3>Live Packet Stream</h3>
-      <div style="max-height:340px;overflow-y:auto">
-        <table><thead><tr><th>Seq</th><th>Path</th><th>Type</th><th>Size</th><th>RTT</th><th>Status</th></tr></thead>
-        <tbody id="pkt-table"><tr><td colspan="6" class="waiting">Waiting...</td></tr></tbody></table>
-      </div>
-    </div>
-    <div class="card">
-      <h3>Recent Events</h3>
-      <div id="event-log"><div class="waiting">Waiting...</div></div>
-    </div>
-  </div>
-
-  <!-- PATHS PAGE -->
-  <div id="page-paths" class="page">
-    <h2 style="margin-bottom:20px">Path Details</h2>
-    <div id="paths-detail"><div class="waiting">Waiting for data...</div></div>
-  </div>
-
-  <!-- FEC PAGE -->
-  <div id="page-fec" class="page">
-    <h2 style="margin-bottom:20px">FEC Dashboard</h2>
-    <div class="grid-2">
-      <div class="card"><h3>Current Mode</h3><div id="fec-mode" class="big-num">--</div></div>
-      <div class="card"><h3>Overhead</h3><div id="fec-overhead" class="big-num">--</div><div class="big-label">percent</div></div>
-    </div>
-    <div class="card"><h3>Total Recoveries</h3><div id="fec-recoveries" class="big-num">--</div><div class="big-label">packets recovered via FEC</div></div>
-    <div class="card"><h3>Mode Changes</h3><div id="fec-changes" class="big-num">--</div><div class="big-label">transitions since start</div></div>
-  </div>
-
-  <!-- AI SCHEDULER PAGE -->
-  <div id="page-scheduler" class="page">
-    <h2 style="margin-bottom:20px">AI Scheduler</h2>
-    <div class="grid-2">
-      <div class="card"><h3>Mode</h3><div id="sched-mode" class="big-num">--</div></div>
-      <div class="card"><h3>Best Path</h3><div id="sched-best" class="big-num">--</div></div>
-    </div>
-    <div class="card"><h3>Avg Decision Time</h3><div id="sched-time" class="big-num">--</div><div class="big-label">microseconds</div></div>
-    <div class="card">
-      <h3>Decision Distribution</h3>
-      <div id="sched-decisions"><div class="waiting">Waiting...</div></div>
-    </div>
-    <div class="card">
-      <h3>Path Utilization</h3>
-      <div id="sched-util"><div class="waiting">Waiting...</div></div>
-    </div>
-  </div>
-
-  <!-- EVENTS PAGE -->
-  <div id="page-events" class="page">
-    <h2 style="margin-bottom:20px">Event Log</h2>
-    <div id="events-full" class="card"><div class="waiting">Waiting for data...</div></div>
-  </div>
-
-  <!-- CONFIG PAGE -->
-  <div id="page-config" class="page">
-    <h2 style="margin-bottom:20px">Configuration</h2>
-    <div class="card">
-      <h3>Scheduler Mode</h3>
-      <div class="config-row">
-        <label>Mode</label>
-        <select id="cfg-sched"><option value="ai">AI</option><option value="round-robin">Round Robin</option><option value="weighted">Weighted</option><option value="primary-backup">Primary Backup</option></select>
-        <button class="btn" onclick="applyScheduler()">Apply</button>
-      </div>
-    </div>
-    <div class="card">
-      <h3>FEC Mode</h3>
-      <div class="config-row">
-        <label>Mode</label>
-        <select id="cfg-fec"><option value="xor">XOR</option><option value="reed_solomon">Reed-Solomon</option><option value="replicate">Replicate</option><option value="none">None</option><option value="auto">Auto</option></select>
-        <button class="btn" onclick="applyFec()">Apply</button>
-      </div>
-    </div>
-    <div class="card">
-      <h3>Path Labels</h3>
-      <div class="config-row"><label>Path 0</label><input id="lbl-0" value="Starlink" style="padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:14px"></div>
-      <div class="config-row"><label>Path 1</label><input id="lbl-1" value="Cellular" style="padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:14px"></div>
-      <button class="btn" onclick="saveLabels()">Save Labels</button>
-    </div>
-  </div>
+<!-- CONNECT -->
+<div class="page" id="page-connect">
+<div class="grid-2">
+<div class="card">
+<h3>VPS Status</h3>
+<div id="conn-status"><p class="waiting">Waiting...</p></div>
+</div>
+<div class="card">
+<h3>Connected Clients</h3>
+<div id="conn-clients"><p class="waiting">Waiting...</p></div>
+</div>
+</div>
+<div class="card">
+<h3>Connect a Device</h3>
+<p style="font-size:13px;color:var(--g500);margin-bottom:10px">Run this on the client device to connect:</p>
+<div class="cmd-box" id="conn-cmd">
+<button class="copy-btn" onclick="copyCmd()">Copy</button>
+<code id="conn-cmd-text"></code>
+</div>
+</div>
+</div>
+<!-- MONITOR -->
+<div class="page active" id="page-monitor">
+<div class="grid-4" id="mon-top">
+<div class="card"><h3>Combined Throughput</h3><div class="big-num" id="m-throughput">--<small> Mbps</small></div></div>
+<div class="card"><h3>Effective Loss</h3><div class="big-num" id="m-loss">--<small> %</small></div></div>
+<div class="card"><h3>Active Paths</h3><div class="big-num" id="m-paths">--</div></div>
+<div class="card"><h3>FEC Recoveries</h3><div class="big-num" id="m-fec">--</div></div>
+</div>
+<div class="grid-2" id="mon-paths"><p class="waiting">Waiting for path data...</p></div>
+<div class="grid-2">
+<div class="card">
+<h3>Live Packet Stream</h3>
+<div style="max-height:340px;overflow-y:auto">
+<table><thead><tr><th>Seq</th><th>Path</th><th>Type</th><th>Size</th><th>RTT</th></tr></thead>
+<tbody id="pkt-body"><tr><td colspan="5" class="waiting">Waiting...</td></tr></tbody></table>
+</div>
+</div>
+<div class="card">
+<h3>Event Log</h3>
+<div class="event-log" id="event-log"><p class="waiting">Waiting...</p></div>
+</div>
+</div>
+</div>
+<!-- TUNE -->
+<div class="page" id="page-tune">
+<div class="card">
+<details class="collapsible" open>
+<summary>Scheduler</summary>
+<div class="inner form-row">
+<label>Mode</label>
+<select id="tune-sched"><option value="ai">AI</option><option value="weighted">Weighted</option>
+<option value="round_robin">Round Robin</option><option value="replicate">Replicate</option></select>
+<button class="primary" onclick="setScheduler()">Apply</button>
+<span id="tune-sched-ok" style="color:var(--green);font-size:12px"></span>
+</div>
+</details>
+<details class="collapsible" open>
+<summary>FEC</summary>
+<div class="inner form-row">
+<label>Mode</label>
+<select id="tune-fec"><option value="auto">Auto</option><option value="xor">XOR</option>
+<option value="reed_solomon">Reed-Solomon</option><option value="replicate">Replicate</option>
+<option value="none">None</option></select>
+<button class="primary" onclick="setFec()">Apply</button>
+<span id="tune-fec-ok" style="color:var(--green);font-size:12px"></span>
+</div>
+</details>
+<details class="collapsible" open>
+<summary>Path Control</summary>
+<div class="inner form-row">
+<button class="secondary" onclick="forcePath(0)">Force Path 0</button>
+<button class="secondary" onclick="forcePath(1)">Force Path 1</button>
+<button class="danger" onclick="releasePath()">Release</button>
+<span id="tune-path-ok" style="color:var(--green);font-size:12px"></span>
+</div>
+</details>
+<details class="collapsible" open>
+<summary>Path Labels</summary>
+<div class="inner">
+<div class="form-row">
+<label>Path 0</label>
+<input type="text" id="label-0" placeholder="Starlink" style="width:180px">
+</div>
+<div class="form-row">
+<label>Path 1</label>
+<input type="text" id="label-1" placeholder="Cellular" style="width:180px">
+</div>
+<button class="secondary" onclick="saveLabels()" style="margin-top:4px">Save Labels</button>
+</div>
+</details>
+</div>
+<div class="card">
+<details class="collapsible">
+<summary>VPS Connection</summary>
+<div class="inner">
+<p style="font-size:12px;color:var(--muted);margin-bottom:8px">Set this when viewing the dashboard from Vercel or a different host than the VPS.</p>
+<div class="form-row">
+<label>VPS URL</label>
+<input type="text" id="vps-url" placeholder="http://89.167.91.132:8080" style="width:280px">
+</div>
+<button class="secondary" onclick="setVpsUrl()" style="margin-top:4px">Save &amp; Reconnect</button>
+<span id="vps-url-ok" style="font-size:12px;margin-left:8px"></span>
+</div>
+</details>
+</div>
+</div>
+<!-- ANALYZE -->
+<div class="page" id="page-analyze">
+<div class="grid-2">
+<div class="card">
+<h3>AI Chat</h3>
+<div id="ai-disabled" style="display:none"><p class="waiting">Set ANTHROPIC_API_KEY to enable AI analysis</p></div>
+<div id="ai-chat-wrap">
+<div class="chat-area" id="chat-area"></div>
+<div class="chat-input-row">
+<input type="text" id="chat-input" placeholder="Ask about network performance...">
+<button class="primary" onclick="sendChat()">Send</button>
+</div>
+</div>
+</div>
+<div class="card">
+<h3>Test Sessions</h3>
+<div class="form-row">
+<input type="text" id="test-name" placeholder="Test name" style="width:160px">
+<select id="test-dur"><option value="30">30s</option><option value="60">1m</option>
+<option value="300">5m</option><option value="600">10m</option></select>
+<button class="primary" onclick="startTest()">Start Test</button>
+<button class="secondary" onclick="startABTest()" title="Runs AI scheduler for first half, Weighted for second half">A/B Test</button>
+</div>
+<div id="test-active-box"></div>
+<div style="margin-top:12px">
+<h3>History</h3>
+<div id="test-history"><p class="waiting">No tests yet</p></div>
+</div>
+</div>
+</div>
+<div class="card">
+<h3>Export</h3>
+<button class="secondary" onclick="location.href=API_BASE+'/api/packets/csv'">Download Packet CSV</button>
+</div>
+</div>
 </main>
-
 <script>
-const PATH_LABELS = {0: 'Starlink', 1: 'Cellular'};
-let state = null, ws = null, pollTimer = null;
+(function(){
+"use strict";
+var S=null,ws=null,pollTimer=null,pathLabels={0:"Starlink",1:"Cellular"},chatMsgs=[];
+var $=function(id){return document.getElementById(id)};
 
-/* NAV */
-document.querySelectorAll('#nav a').forEach(a => {
-  a.addEventListener('click', () => {
-    document.querySelectorAll('#nav a').forEach(n => n.classList.remove('active'));
-    a.classList.add('active');
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('page-' + a.dataset.page).classList.add('active');
+// API Base URL — empty when served from VPS directly, set to VPS address when on Vercel/external
+var API_BASE = "";
+var WS_BASE = "";
+(function detectApiBase(){
+  var saved = localStorage.getItem("hyperagg_vps_url");
+  if(saved){API_BASE=saved.replace(/\/$/,"");WS_BASE=API_BASE.replace(/^http/,"ws")}
+})();
+
+// Tabs
+document.querySelectorAll("#nav button").forEach(function(b){
+  b.addEventListener("click",function(){
+    document.querySelectorAll("#nav button").forEach(function(x){x.classList.remove("active")});
+    document.querySelectorAll(".page").forEach(function(x){x.classList.remove("active")});
+    b.classList.add("active");
+    $("page-"+b.dataset.tab).classList.add("active");
+    if(b.dataset.tab==="analyze") loadTests();
   });
 });
 
-/* WEBSOCKET */
-function connectWS() {
-  ws = new WebSocket('ws://' + location.host + '/ws');
-  ws.onopen = () => { document.getElementById('ws-status').textContent = 'WS: connected'; if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
-  ws.onmessage = e => { try { state = JSON.parse(e.data); render(); } catch (_) {} };
-  ws.onclose = () => { document.getElementById('ws-status').textContent = 'WS: disconnected'; startPolling(); setTimeout(connectWS, 3000); };
-  ws.onerror = () => { ws.close(); };
+// Labels from localStorage
+try{var stored=JSON.parse(localStorage.getItem("pathLabels"));if(stored){pathLabels=stored}}catch(e){}
+$("label-0").value=pathLabels[0]||"";
+$("label-1").value=pathLabels[1]||"";
+function saveLabels(){
+  pathLabels[0]=$("label-0").value||"Starlink";
+  pathLabels[1]=$("label-1").value||"Cellular";
+  localStorage.setItem("pathLabels",JSON.stringify(pathLabels));
+  if(S) render(S);
+}
+window.saveLabels=saveLabels;
+
+// VPS URL
+if(API_BASE) $("vps-url").value=API_BASE;
+window.setVpsUrl=function(){
+  var url=$("vps-url").value.trim().replace(/\/$/,"");
+  if(url){API_BASE=url;WS_BASE=url.replace(/^http/,"ws");localStorage.setItem("hyperagg_vps_url",url);
+    if(ws){ws.close();ws=null}connectWs();$("vps-url-ok").textContent="Saved!";
+    setTimeout(function(){$("vps-url-ok").textContent=""},2000)}
+  else{API_BASE="";WS_BASE="";localStorage.removeItem("hyperagg_vps_url");
+    $("vps-url-ok").textContent="Cleared (using local)"}};
+
+// Connect command
+var vpsHost=(API_BASE?API_BASE.replace(/^https?:\/\//,"").replace(/:\d+$/,""):location.hostname);
+$("conn-cmd-text").textContent="sudo python -m hyperagg --mode client --vps-host "+vpsHost+" --interfaces eth1 usb0";
+window.copyCmd=function(){
+  navigator.clipboard.writeText($("conn-cmd-text").textContent);
+  var btn=document.querySelector(".copy-btn");btn.textContent="Copied!";
+  setTimeout(function(){btn.textContent="Copy"},1500);
+};
+
+// WebSocket
+function connectWs(){
+  if(ws&&ws.readyState<2) return;
+  try{
+    ws=new WebSocket((WS_BASE||("ws://"+location.host))+"/ws");
+    ws.onmessage=function(e){try{S=JSON.parse(e.data);render(S)}catch(er){}};
+    ws.onclose=function(){ws=null;if(!pollTimer) pollTimer=setInterval(poll,2000)};
+    ws.onerror=function(){ws.close()};
+    if(pollTimer){clearInterval(pollTimer);pollTimer=null}
+  }catch(e){if(!pollTimer) pollTimer=setInterval(poll,2000)}
+}
+function poll(){
+  fetch(API_BASE+"/api/state").then(function(r){return r.json()}).then(function(d){S=d;render(d)}).catch(function(){});
+  connectWs();
+}
+connectWs();
+setInterval(function(){if(!ws||ws.readyState>1)connectWs()},5000);
+
+// Render
+function render(s){
+  $("hdr-mode").textContent=s.mode||"--";
+  var dot=$("hdr-dot");dot.className="status-dot "+(s.running?"ok":"off");
+  renderConnect(s);
+  renderMonitor(s);
+  if(s.scheduler) $("tune-sched").value=s.scheduler.mode||"ai";
+  if(s.fec) $("tune-fec").value=s.fec.current_mode||"auto";
+  if(s.ai_enabled===false){$("ai-disabled").style.display="";$("ai-chat-wrap").style.display="none"}
+  else{$("ai-disabled").style.display="none";$("ai-chat-wrap").style.display=""}
+  renderActiveTest(s);
 }
 
-function startPolling() {
-  if (pollTimer) return;
-  pollTimer = setInterval(async () => {
-    try {
-      const r = await fetch('/api/state');
-      if (r.ok) { state = await r.json(); render(); }
-    } catch (_) {}
-  }, 2000);
+function renderConnect(s){
+  var up=s.uptime_sec!=null?fmtDur(s.uptime_sec):"--";
+  $("conn-status").innerHTML=
+    '<div class="metric-row"><span class="label">Mode</span><span class="val">'+esc(s.mode||"--")+'</span></div>'+
+    '<div class="metric-row"><span class="label">Uptime</span><span class="val">'+up+'</span></div>'+
+    '<div class="metric-row"><span class="label">Running</span><span class="val">'+(s.running?"Yes":"No")+'</span></div>';
+  var sess=s.sessions?Object.keys(s.sessions).length:0;
+  var badge;
+  if(s.mode!=="server") badge='<span class="badge badge-gray">N/A ('+esc(s.mode||"--")+' mode)</span>';
+  else if(sess===0) badge='<span class="badge badge-gray">No Clients</span>';
+  else{
+    var alive=s.sessions?Object.values(s.sessions).filter(function(c){return c.is_alive!==false}).length:sess;
+    badge=alive===sess?'<span class="badge badge-green">'+sess+' Connected</span>'
+      :'<span class="badge badge-yellow">'+alive+'/'+sess+' Degraded</span>';
+  }
+  $("conn-clients").innerHTML='<div style="font-size:32px;font-weight:700">'+sess+'</div>'+badge;
 }
 
-/* QUALITY COLOR */
-function qColor(s) { return s > 0.8 ? 'var(--green)' : s > 0.5 ? 'var(--yellow)' : 'var(--red)'; }
-function trendIcon(t) { return t === 'stable' ? '&#8594;' : t === 'degrading' ? '&#8600;' : t === 'improving' ? '&#8599;' : '?'; }
-function trendClass(t) { return 'trend-' + (t || 'stable'); }
-function pathLabel(id) { return PATH_LABELS[id] || ('Path ' + id); }
-function fmtTime(ts) { const d = new Date(ts * 1000); return d.toLocaleTimeString(); }
+function renderMonitor(s){
+  var m=s.metrics||{};
+  $("m-throughput").innerHTML=num(m.aggregate_throughput_mbps)+'<small> Mbps</small>';
+  $("m-loss").innerHTML=num(m.effective_loss_pct)+'<small> %</small>';
+  var paths=s.paths||{};
+  var alive=Object.values(paths).filter(function(p){return p.is_alive}).length;
+  $("m-paths").textContent=S?alive:"--";
+  $("m-fec").textContent=m.fec_recoveries!=null?m.fec_recoveries:"--";
 
-/* RENDER */
-function render() {
-  if (!state) return;
-  const s = state;
-  document.getElementById('uptime').textContent = Math.floor(s.uptime_sec || 0) + 's';
-
-  // connection badge
-  const badge = document.getElementById('conn-badge');
-  if (!s.running) { badge.textContent = 'OFFLINE'; badge.className = 'conn-badge badge-offline'; }
-  else {
-    const paths = s.paths || {};
-    const allAlive = Object.values(paths).every(p => p.is_alive);
-    if (allAlive) { badge.textContent = 'AGGREGATING'; badge.className = 'conn-badge badge-ok'; }
-    else { badge.textContent = 'DEGRADED'; badge.className = 'conn-badge badge-degraded'; }
+  // Per-path cards
+  var pks=Object.keys(paths);
+  if(pks.length){
+    var totalThroughput=0;
+    pks.forEach(function(k){totalThroughput+=(paths[k].throughput_mbps||0)});
+    var h="";
+    pks.forEach(function(k){
+      var p=paths[k],lbl=pathLabels[k]||("Path "+k);
+      var qs=p.quality_score!=null?p.quality_score:null;
+      var qc=qs==null?"var(--g300)":qs>0.8?"var(--green)":qs>0.5?"var(--yellow)":"var(--red)";
+      var qw=qs!=null?(qs*100).toFixed(0):0;
+      var pr=p.prediction||{};
+      var tc=pr.trend==="stable"?"trend-stable":pr.trend==="degrading"?"trend-degrading":"trend-improving";
+      var share=totalThroughput>0?((p.throughput_mbps||0)/totalThroughput*100).toFixed(0):0;
+      var pathColor=k==="0"||k===0?"var(--blue)":"var(--purple)";
+      h+='<div class="card"><h3>'+esc(lbl)+" "+(p.is_alive?'<span class="badge badge-green" style="float:right">UP</span>':'<span class="badge badge-red" style="float:right">DOWN</span>')+'</h3>'+
+        '<div class="metric-row"><span class="label">RTT</span><span class="val">'+num(p.avg_rtt_ms)+' ms</span></div>'+
+        '<div class="metric-row"><span class="label">Loss</span><span class="val">'+num(p.loss_pct)+'%</span></div>'+
+        '<div class="metric-row"><span class="label">Jitter</span><span class="val">'+num(p.jitter_ms)+' ms</span></div>'+
+        '<div class="metric-row"><span class="label">Throughput</span><span class="val">'+num(p.throughput_mbps)+' Mbps</span></div>'+
+        '<div class="metric-row"><span class="label">Quality</span><span class="val">'+(qs!=null?qs.toFixed(2):"--")+'</span></div>'+
+        '<div class="quality-bar"><div class="quality-bar-inner" style="width:'+qw+'%;background:'+qc+'"></div></div>'+
+        '<div class="pred">Delivery: <b>'+(pr.delivery_probability!=null?(pr.delivery_probability*100).toFixed(1)+"%":"--")+'</b>'+
+        ' &middot; Trend: <span class="'+tc+'">'+esc(pr.trend||"--")+'</span>'+
+        ' &middot; '+esc(pr.recommended_action||"")+'</div>'+
+        '<div style="margin-top:8px;font-size:12px;color:var(--g500)">Traffic share: '+share+'%</div>'+
+        '<div class="share-bar"><div style="width:'+share+'%;background:'+pathColor+'"></div></div></div>';
+    });
+    $("mon-paths").innerHTML=h;
   }
 
-  renderPathCards();
-  renderAggStats();
-  renderPackets();
-  renderEvents();
-  renderPathsDetail();
-  renderFec();
-  renderScheduler();
-}
-
-function renderPathCards() {
-  const paths = state.paths || {};
-  const sent = (state.metrics || {}).packets_sent_per_path || {};
-  const totalSent = Object.values(sent).reduce((a, b) => a + b, 0) || 1;
-  const el = document.getElementById('path-cards');
-  let h = '';
-  for (const [id, p] of Object.entries(paths)) {
-    const share = ((sent[id] || 0) / totalSent * 100).toFixed(1);
-    const pr = p.prediction || {};
-    h += `<div class="card">
-      <h3>Path ${id}: ${pathLabel(id)} ${p.is_alive ? '<span style="color:var(--green)">&#9679;</span>' : '<span style="color:var(--red)">&#9679;</span>'}</h3>
-      <div class="metric-row"><span class="label">RTT</span><span class="val">${p.avg_rtt_ms} ms</span></div>
-      <div class="metric-row"><span class="label">Loss</span><span class="val">${p.loss_pct}%</span></div>
-      <div class="metric-row"><span class="label">Jitter</span><span class="val">${p.jitter_ms} ms</span></div>
-      <div class="metric-row"><span class="label">Throughput</span><span class="val">${p.throughput_mbps} Mbps</span></div>
-      <div class="metric-row"><span class="label">Quality</span><span class="val" style="color:${qColor(p.quality_score)}">${(p.quality_score * 100).toFixed(0)}%</span></div>
-      <div class="quality-bar"><div class="quality-bar-inner" style="width:${p.quality_score * 100}%;background:${qColor(p.quality_score)}"></div></div>
-      <div class="pred">AI: ${(pr.delivery_probability * 100).toFixed(0)}% delivery <span class="${trendClass(pr.trend)}">${trendIcon(pr.trend)} ${pr.trend || ''}</span> &mdash; ${pr.recommended_action || ''}</div>
-      <div class="metric-row" style="margin-top:6px"><span class="label">Traffic share</span><span class="val">${share}%</span></div>
-      <div class="traffic-bar"><div class="traffic-bar-inner" style="width:${share}%"></div></div>
-    </div>`;
+  // Packets
+  var pkts=s.recent_packets||[];
+  if(pkts.length){
+    var rows="";
+    pkts.slice(-20).forEach(function(p){
+      var cls=p.packet_type==="recovered"?"recovered ":"";
+      var pcls="path-"+p.path_id;
+      rows+='<tr class="'+cls+pcls+'"><td>'+p.global_seq+'</td><td>'+(pathLabels[p.path_id]||p.path_id)+'</td>'+
+        '<td>'+esc(p.packet_type)+'</td><td>'+p.payload_len+'</td><td>'+(p.rtt_ms!=null?p.rtt_ms.toFixed(1):"--")+'</td></tr>';
+    });
+    $("pkt-body").innerHTML=rows;
   }
-  el.innerHTML = h || '<div class="waiting">No paths</div>';
-}
 
-function renderAggStats() {
-  const m = state.metrics || {}, ps = state.packet_stats || {};
-  const paths = state.paths || {};
-  const tp = Object.values(paths).reduce((a, p) => a + (p.throughput_mbps || 0), 0);
-  const effLoss = Object.values(paths).length ? (Object.values(paths).reduce((a, p) => a + (p.loss_pct || 0), 0) / Object.values(paths).length).toFixed(2) : '--';
-  document.getElementById('agg-stats').innerHTML = `
-    <div class="agg-stat"><div class="val">${tp.toFixed(1)}</div><div class="lbl">Combined Mbps</div></div>
-    <div class="agg-stat"><div class="val">${effLoss}%</div><div class="lbl">Effective Loss</div></div>
-    <div class="agg-stat"><div class="val">${m.fec_recoveries ?? '--'}</div><div class="lbl">FEC Recoveries</div></div>
-    <div class="agg-stat"><div class="val">${ps.current_pps ?? '--'}</div><div class="lbl">Packets/sec</div></div>
-    <div class="agg-stat"><div class="val">${m.scheduler_mode || '--'}</div><div class="lbl">Scheduler</div></div>
-    <div class="agg-stat"><div class="val">${m.fec_mode || '--'} ${m.fec_overhead_pct != null ? m.fec_overhead_pct + '%' : ''}</div><div class="lbl">FEC Mode + OH</div></div>`;
-}
-
-function renderPackets() {
-  const pkts = (state.recent_packets || []).slice(-20);
-  if (!pkts.length) { document.getElementById('pkt-table').innerHTML = '<tr><td colspan="6" class="waiting">No packets yet</td></tr>'; return; }
-  let h = '';
-  for (const p of pkts) {
-    const isFec = p.packet_type === 'fec' || p.packet_type === 'recovery';
-    h += `<tr class="path-${p.path_id}${isFec ? ' fec-recovery' : ''}">
-      <td>${p.global_seq}</td><td>${pathLabel(p.path_id)}</td><td>${p.packet_type}</td>
-      <td>${p.payload_len}B</td><td>${p.rtt_ms != null ? p.rtt_ms.toFixed(1) + 'ms' : '--'}</td>
-      <td>${isFec ? 'recovered' : 'ok'}</td></tr>`;
+  // Events
+  var evts=s.events||[];
+  if(evts.length){
+    var eh="";
+    evts.slice(-10).forEach(function(e){
+      eh+='<div class="ev"><span class="ev-time">'+fmtTime(e.timestamp)+'</span><span class="ev-cat">'+esc(e.category)+'</span><span>'+esc(e.message)+'</span></div>';
+    });
+    $("event-log").innerHTML=eh;
   }
-  document.getElementById('pkt-table').innerHTML = h;
 }
 
-function renderEvents() {
-  const evts = (state.events || []).slice(-10);
-  const el = document.getElementById('event-log');
-  const full = document.getElementById('events-full');
-  if (!evts.length) { el.innerHTML = '<div class="waiting">No events</div>'; full.innerHTML = '<div class="waiting">No events</div>'; return; }
-  let h = '';
-  for (const e of evts) {
-    h += `<div class="event-item"><span class="ev-time">${fmtTime(e.timestamp)}</span><span class="ev-cat">${e.category}</span>${e.message}</div>`;
+function renderActiveTest(s){
+  var t=s.active_test;
+  if(t){
+    $("test-active-box").innerHTML='<div class="test-active">'+
+      '<b>'+esc(t.name||t.id)+'</b>'+
+      '<span>'+fmtDur(t.elapsed_sec)+' / '+fmtDur(t.duration_target_sec)+'</span>'+
+      '<span>'+t.snapshots_count+' snapshots</span>'+
+      '<button class="danger" onclick="stopTest()">Stop</button></div>';
+  }else{$("test-active-box").innerHTML="";}
+}
+
+// Tune actions
+function apiPost(url,body){
+  return fetch(API_BASE+url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+    .then(function(r){return r.ok});
+}
+window.setScheduler=function(){
+  apiPost("/api/scheduler/mode",{mode:$("tune-sched").value}).then(function(ok){flash("tune-sched-ok",ok)});
+};
+window.setFec=function(){
+  apiPost("/api/fec/mode",{mode:$("tune-fec").value}).then(function(ok){flash("tune-fec-ok",ok)});
+};
+window.forcePath=function(id){
+  apiPost("/api/force-path",{path_id:id}).then(function(ok){flash("tune-path-ok",ok)});
+};
+window.releasePath=function(){
+  apiPost("/api/release-path",{}).then(function(ok){flash("tune-path-ok",ok)});
+};
+function flash(id,ok){
+  var el=$(id);el.textContent=ok?"Done":"Failed";
+  setTimeout(function(){el.textContent=""},2000);
+}
+
+// Chat
+window.sendChat=function(){
+  var inp=$("chat-input"),msg=inp.value.trim();
+  if(!msg) return;
+  chatMsgs.push({role:"user",text:msg});
+  inp.value="";
+  renderChat();
+  fetch(API_BASE+"/api/ai/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:msg})})
+    .then(function(r){return r.json()})
+    .then(function(d){chatMsgs.push({role:"ai",text:d.analysis||"No response",changes:d.suggested_changes||[]});renderChat()})
+    .catch(function(e){chatMsgs.push({role:"ai",text:"Error: "+e.message,changes:[]});renderChat()});
+};
+$("chat-input").addEventListener("keydown",function(e){if(e.key==="Enter")window.sendChat()});
+
+function renderChat(){
+  var area=$("chat-area"),h="";
+  chatMsgs.forEach(function(m,i){
+    h+='<div class="chat-msg '+m.role+'"><div class="bubble">'+esc(m.text)+'</div></div>';
+    if(m.changes&&m.changes.length){
+      m.changes.forEach(function(c,j){
+        var desc=typeof c==="string"?c:(c.description||JSON.stringify(c));
+        h+='<div class="suggested-change"><span>'+esc(desc)+'</span>'+
+          '<button class="primary" onclick="applyChange('+i+','+j+')" style="padding:4px 10px;font-size:12px">Apply</button></div>';
+      });
+    }
+  });
+  area.innerHTML=h;
+  area.scrollTop=area.scrollHeight;
+}
+window.applyChange=function(mi,ci){
+  var c=chatMsgs[mi].changes[ci];
+  if(!c) return;
+  var endpoint=c.endpoint||c.url;
+  var body=c.body||c.params||{};
+  if(endpoint){
+    apiPost(endpoint,body).then(function(){
+      chatMsgs.push({role:"ai",text:"Applied: "+(c.description||endpoint),changes:[]});
+      renderChat();
+    });
   }
-  el.innerHTML = h;
-  full.innerHTML = h;
+};
+
+// Tests
+window.startTest=function(){
+  var name=$("test-name").value.trim()||"Unnamed";
+  var dur=parseInt($("test-dur").value);
+  apiPost("/api/tests/start",{name:name,duration_sec:dur});
+  setTimeout(loadTests,2000);
+};
+window.startABTest=function(){
+  var name=$("test-name").value.trim()||"A/B Test";
+  var dur=parseInt($("test-dur").value);
+  apiPost("/api/tests/ab",{name:name,duration_sec:dur,
+    variant_a:{scheduler_mode:"ai"},variant_b:{scheduler_mode:"weighted"}});
+  setTimeout(loadTests,2000);
+};
+window.stopTest=function(){apiPost("/api/tests/stop",{});setTimeout(loadTests,1000)};
+function fmtSummary(s){
+  if(!s)return'<span class="waiting">No summary</span>';
+  var h='<div style="font-size:12px;margin-top:6px">';
+  var pp=s.per_path||{};
+  for(var pid in pp){var p=pp[pid];
+    h+='<div style="margin-bottom:4px"><b>'+(pathLabels[pid]||'Path '+pid)+'</b>: ';
+    h+='RTT='+num(p.avg_rtt_ms)+'ms (p95='+num(p.p95_rtt_ms)+'), Loss='+num(p.avg_loss_pct)+'%, Score='+num(p.avg_score);
+    h+='</div>'}
+  var a=s.aggregate||{};
+  h+='<div style="margin-top:4px;padding-top:4px;border-top:1px solid var(--g200)">';
+  h+='<b>Aggregate</b>: '+num(a.avg_throughput_mbps)+' Mbps avg ('+num(a.max_throughput_mbps)+' max), ';
+  h+=num(a.avg_effective_loss_pct)+'% loss, '+(a.total_fec_recoveries||0)+' FEC recoveries';
+  h+='</div></div>';
+  return h;
+}
+function loadTests(){
+  fetch(API_BASE+"/api/tests/list").then(function(r){return r.json()}).then(function(list){
+    if(!list||!list.length){$("test-history").innerHTML='<p class="waiting">No tests yet</p>';return}
+    var h='<table><thead><tr><th>Name</th><th>Type</th><th>Date</th><th>Duration</th><th>Status</th></tr></thead><tbody>';
+    list.forEach(function(t){
+      var typ=(t.test_type||'standard')==='ab'?'<span style="color:var(--purple)">A/B</span>':'Standard';
+      h+='<tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\'">'+
+        '<td>'+esc(t.name)+'</td><td>'+typ+'</td><td>'+fmtTime(t.started_at)+'</td><td>'+fmtDur(t.duration_sec||0)+'</td><td>'+esc(t.status)+'</td></tr>'+
+        '<tr style="display:none"><td colspan="5">'+fmtSummary(t.summary)+'</td></tr>';
+    });
+    h+='</tbody></table>';
+    $("test-history").innerHTML=h;
+  }).catch(function(){$("test-history").innerHTML='<p class="waiting">Could not load tests</p>'});
 }
 
-function renderPathsDetail() {
-  const paths = state.paths || {};
-  let h = '';
-  for (const [id, p] of Object.entries(paths)) {
-    const pr = p.prediction || {};
-    h += `<div class="card">
-      <h3>Path ${id}: ${pathLabel(id)} ${p.is_alive ? '<span style="color:var(--green)">&#9679; ALIVE</span>' : '<span style="color:var(--red)">&#9679; DOWN</span>'}</h3>
-      <div class="grid-2" style="margin-top:12px">
-        <div>
-          <div class="metric-row"><span class="label">Avg RTT</span><span class="val">${p.avg_rtt_ms} ms</span></div>
-          <div class="metric-row"><span class="label">Jitter</span><span class="val">${p.jitter_ms} ms</span></div>
-          <div class="metric-row"><span class="label">Loss</span><span class="val">${p.loss_pct}%</span></div>
-        </div>
-        <div>
-          <div class="metric-row"><span class="label">Throughput</span><span class="val">${p.throughput_mbps} Mbps</span></div>
-          <div class="metric-row"><span class="label">Quality Score</span><span class="val" style="color:${qColor(p.quality_score)}">${(p.quality_score * 100).toFixed(0)}%</span></div>
-          <div class="metric-row"><span class="label">Delivery Prob</span><span class="val">${(pr.delivery_probability * 100).toFixed(0)}%</span></div>
-        </div>
-      </div>
-      <div class="quality-bar" style="margin-top:12px"><div class="quality-bar-inner" style="width:${p.quality_score * 100}%;background:${qColor(p.quality_score)}"></div></div>
-      <div class="pred" style="margin-top:8px">Trend: <span class="${trendClass(pr.trend)}">${trendIcon(pr.trend)} ${pr.trend || ''}</span> &mdash; Action: <strong>${pr.recommended_action || '--'}</strong></div>
-    </div>`;
-  }
-  document.getElementById('paths-detail').innerHTML = h || '<div class="waiting">No paths</div>';
-}
-
-function renderFec() {
-  const f = state.fec || {};
-  document.getElementById('fec-mode').textContent = (f.current_mode || '--').toUpperCase();
-  document.getElementById('fec-overhead').textContent = f.overhead_pct != null ? f.overhead_pct + '%' : '--';
-  document.getElementById('fec-recoveries').textContent = f.total_recoveries ?? '--';
-  document.getElementById('fec-changes').textContent = f.mode_changes ?? '--';
-}
-
-function renderScheduler() {
-  const sc = state.scheduler || {};
-  const st = sc.stats || {};
-  document.getElementById('sched-mode').textContent = (sc.mode || '--').toUpperCase();
-  document.getElementById('sched-best').textContent = sc.best_path != null ? pathLabel(sc.best_path) : '--';
-  document.getElementById('sched-time').textContent = st.avg_decision_time_us != null ? st.avg_decision_time_us.toFixed(1) : '--';
-
-  const reasons = st.decisions_by_reason || {};
-  const total = st.decisions_total || 1;
-  let h = '';
-  for (const [r, c] of Object.entries(reasons)) {
-    const pct = (c / total * 100).toFixed(1);
-    h += `<div class="metric-row"><span class="label">${r}</span><span class="val">${c} (${pct}%)</span></div>`;
-  }
-  document.getElementById('sched-decisions').innerHTML = h || '<div class="waiting">No data</div>';
-
-  const sent = (state.metrics || {}).packets_sent_per_path || {};
-  const totalSent = Object.values(sent).reduce((a, b) => a + b, 0) || 1;
-  let u = '';
-  for (const [id, c] of Object.entries(sent)) {
-    const pct = (c / totalSent * 100).toFixed(1);
-    u += `<div class="metric-row"><span class="label">${pathLabel(id)}</span><span class="val">${pct}% (${c} pkts)</span></div>
-      <div class="traffic-bar" style="margin-bottom:8px"><div class="traffic-bar-inner" style="width:${pct}%"></div></div>`;
-  }
-  document.getElementById('sched-util').innerHTML = u || '<div class="waiting">No data</div>';
-}
-
-/* CONFIG ACTIONS */
-async function applyScheduler() {
-  const mode = document.getElementById('cfg-sched').value;
-  try { await fetch('/api/scheduler/mode', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode}) }); } catch (_) {}
-}
-async function applyFec() {
-  const mode = document.getElementById('cfg-fec').value;
-  try { await fetch('/api/fec/mode', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode}) }); } catch (_) {}
-}
-function saveLabels() {
-  PATH_LABELS[0] = document.getElementById('lbl-0').value || 'Path 0';
-  PATH_LABELS[1] = document.getElementById('lbl-1').value || 'Path 1';
-  if (state) render();
-}
-
-connectWS();
+// Helpers
+function num(v){return v!=null?Number(v).toFixed(1):"--"}
+function esc(s){if(!s)return"";var d=document.createElement("div");d.textContent=String(s);return d.innerHTML}
+function fmtDur(sec){if(sec==null)return"--";sec=Math.floor(sec);var m=Math.floor(sec/60),sv=sec%60;
+  if(m>=60){var h=Math.floor(m/60);return h+"h "+String(m%60).padStart(2,"0")+"m"}
+  return m+"m "+String(sv).padStart(2,"0")+"s"}
+function fmtTime(ts){if(!ts)return"--";try{var d=new Date(ts);return d.toLocaleTimeString()}catch(e){return String(ts).slice(11,19)}}
+})();
 </script>
 </body>
 </html>

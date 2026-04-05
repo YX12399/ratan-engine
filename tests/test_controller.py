@@ -135,15 +135,112 @@ class TestPacketLogger:
         assert len(pl._log) == 5  # ring buffer kept only 5
 
 
+class TestChatHandler:
+    def test_mock_response_without_api_key(self, sample_config):
+        from hyperagg.ai.chat_handler import ChatHandler
+        sdn = SDNController(sample_config, mode="client")
+        handler = ChatHandler(sdn, api_key="")  # No API key
+        assert not handler.is_enabled
+
+    async def test_mock_chat(self, sample_config):
+        from hyperagg.ai.chat_handler import ChatHandler
+        sdn = SDNController(sample_config, mode="client")
+        handler = ChatHandler(sdn, api_key="")
+        result = await handler.chat("How are my paths?")
+        assert "analysis" in result
+        assert "suggested_changes" in result
+        # All suggested_changes should have endpoint+body format
+        for change in result["suggested_changes"]:
+            assert "endpoint" in change
+            assert "body" in change
+            assert "description" in change
+
+    async def test_mock_generates_suggestions_for_bad_path(self, sample_config):
+        """When a path has low score, mock should suggest forcing to the good path."""
+        from hyperagg.ai.chat_handler import ChatHandler
+        sdn = SDNController(sample_config, mode="client")
+        # Simulate a degraded state
+        sdn._state = sdn.get_system_state()
+        sdn._state["paths"] = {
+            0: {"avg_rtt_ms": 30, "loss_pct": 1, "quality_score": 0.95, "is_alive": True,
+                "prediction": {"trend": "stable", "recommended_action": "prefer"}},
+            1: {"avg_rtt_ms": 300, "loss_pct": 15, "quality_score": 0.2, "is_alive": True,
+                "prediction": {"trend": "degrading", "recommended_action": "avoid"}},
+        }
+        sdn._state["metrics"] = {"fec_mode": "xor", "effective_loss_pct": 5,
+                                   "aggregate_throughput_mbps": 10, "scheduler_mode": "ai",
+                                   "packets_sent_per_path": {}}
+        sdn._state["fec"] = {"current_mode": "xor", "total_recoveries": 5}
+        sdn._state["scheduler"] = {"mode": "ai"}
+        sdn.get_system_state = lambda: sdn._state
+        handler = ChatHandler(sdn, api_key="")
+        result = await handler.chat("What's wrong?")
+        assert len(result["suggested_changes"]) > 0
+        endpoints = [c["endpoint"] for c in result["suggested_changes"]]
+        assert any("/api/" in e for e in endpoints)
+
+    def test_normalize_action_format(self):
+        from hyperagg.ai.chat_handler import ChatHandler
+        changes = [{"action": "set_scheduler_mode", "value": "weighted", "reason": "test"}]
+        normalized = ChatHandler._normalize_changes(changes)
+        assert len(normalized) == 1
+        assert normalized[0]["endpoint"] == "/api/scheduler/mode"
+        assert normalized[0]["body"] == {"mode": "weighted"}
+
+    def test_history(self, sample_config):
+        from hyperagg.ai.chat_handler import ChatHandler
+        sdn = SDNController(sample_config, mode="client")
+        handler = ChatHandler(sdn, api_key="")
+        assert handler.get_history() == []
+
+
+class TestTestRunner:
+    async def test_start_and_stop(self, sample_config):
+        from hyperagg.testing.test_runner import TestRunner
+        sdn = SDNController(sample_config, mode="client")
+        runner = TestRunner(sdn)
+        session = await runner.start_test("test1", duration_minutes=0.01)
+        assert session.status == "running"
+        assert runner.get_active() is not None
+        result = await runner.stop_test()
+        assert result.status == "stopped"
+        assert runner.get_active() is None
+
+    async def test_ab_test(self, sample_config):
+        from hyperagg.testing.test_runner import TestRunner
+        sdn = SDNController(sample_config, mode="client")
+        runner = TestRunner(sdn)
+        session = await runner.start_ab_test(
+            "ab1", duration_minutes=0.02,
+            variant_a={"scheduler_mode": "ai"},
+            variant_b={"scheduler_mode": "weighted"},
+        )
+        assert session.test_type == "ab"
+        assert session.status == "running"
+        result = await runner.stop_test()
+        assert result.test_type == "ab"
+
+    def test_list_tests_empty(self, sample_config):
+        from hyperagg.testing.test_runner import TestRunner
+        sdn = SDNController(sample_config, mode="client")
+        runner = TestRunner(sdn)
+        tests = runner.list_tests()
+        assert isinstance(tests, list)
+
+
 class TestDashboardAPI:
     @pytest.fixture
     def app(self, sample_config):
         from hyperagg.dashboard.api import create_dashboard_app
+        from hyperagg.ai.chat_handler import ChatHandler
+        from hyperagg.testing.test_runner import TestRunner
         sdn = SDNController(sample_config, mode="client")
         sdn._emit_event("test", "startup")
         pkt_log = PacketLogger()
         pkt_log.log(1, 0, "data", 1400)
-        return create_dashboard_app(sdn, pkt_log)
+        ai = ChatHandler(sdn, api_key="")
+        tests = TestRunner(sdn)
+        return create_dashboard_app(sdn, pkt_log, ai, tests)
 
     @pytest.fixture
     def client(self, app):
@@ -192,3 +289,37 @@ class TestDashboardAPI:
         resp = client.get("/")
         assert resp.status_code == 200
         assert "HyperAgg" in resp.text
+
+    def test_ai_chat(self, client):
+        resp = client.post("/api/ai/chat", json={"message": "How are my paths?"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "analysis" in data
+        assert "suggested_changes" in data
+
+    def test_ai_status(self, client):
+        resp = client.get("/api/ai/status")
+        assert resp.status_code == 200
+        assert "enabled" in resp.json()
+
+    def test_ai_history(self, client):
+        resp = client.get("/api/ai/history")
+        assert resp.status_code == 200
+
+    def test_tests_list(self, client):
+        resp = client.get("/api/tests/list")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    def test_tests_active_none(self, client):
+        resp = client.get("/api/tests/active")
+        assert resp.status_code == 200
+
+    def test_tests_start_and_stop(self, client):
+        resp = client.post("/api/tests/start", json={"name": "test1", "duration_minutes": 0.01})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "started"
+
+        resp = client.post("/api/tests/stop")
+        assert resp.status_code == 200
