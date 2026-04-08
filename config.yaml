@@ -6,7 +6,7 @@ vps:
   host: "${HYPERAGG_VPS_HOST}"
   tunnel_port: 9999
   api_port: 9090
-  encryption_key: "wCPJN/q6ap9io+qO4X4v0rmS4aVJLHkYV6Oua48UlYQ="
+  encryption_key: "${HYPERAGG_KEY}"  # Set via env var or generate with: python scripts/generate_key.py
   server_ip: "10.99.0.2"    # VPS-side TUN IP
   client_ip: "10.99.0.1"    # Edge-side TUN IP
 

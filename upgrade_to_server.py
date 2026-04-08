@@ -32,9 +32,8 @@ with open("/etc/systemd/system/ratan-engine.service", "w") as f:
     f.write(svc)
 
 print("=== Step 4: Opening firewall ports ===")
-os.system("ufw allow 8080/tcp")   # API
-os.system("ufw allow 9000/udp")   # Data tunnel
-os.system("ufw allow 9001/udp")   # Probe port
+os.system("ufw allow 8080/tcp")   # API / dashboard
+os.system("ufw allow 9999/udp")   # UDP tunnel (matches config.yaml tunnel_port)
 
 print("=== Step 5: Reloading and restarting ===")
 os.system("systemctl daemon-reload")
