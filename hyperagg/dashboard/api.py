@@ -134,9 +134,17 @@ def create_dashboard_app(
 
     @app.get("/api/state")
     async def system_state():
+        """Full state snapshot — same data as WebSocket for fallback polling."""
         state = ctrl.get_system_state()
         if tests:
             state["active_test"] = tests.get_active()
+        if pkt_log:
+            state["recent_packets"] = pkt_log.get_recent(20)
+            state["packet_stats"] = pkt_log.get_stats()
+        state["events"] = ctrl.get_events(10)
+        state["ai_enabled"] = ai.is_enabled if ai else False
+        if dev_reg:
+            state["devices"] = dev_reg.list_devices()
         return state
 
     @app.get("/api/paths")

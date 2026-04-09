@@ -590,6 +590,10 @@ class RealDemoController:
             state["session"] = self._session_mgr.get_stats()
         state["adaptive_fec"] = self._fec.get_adaptive_stats()
 
+        # Impairment and traffic generator state (for dashboard rendering)
+        state["impairment"] = getattr(self, "_impairment_state", {0: {"action": "clear", "detail": "No impairment"}, 1: {"action": "clear", "detail": "No impairment"}})
+        state["traffic"] = getattr(self, "_traffic_state", {"running": False, "mode": "", "rate_mbps": 0, "remaining_sec": 0})
+
         return state
 
     def get_events(self, last_n: int = 50) -> list[dict]:

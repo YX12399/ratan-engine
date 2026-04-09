@@ -622,7 +622,7 @@ $("chat-input").addEventListener("keydown",function(e){if(e.key==="Enter")window
 function renderChat(){
   var area=$("chat-area"),h="";
   chatMsgs.forEach(function(m,i){
-    h+='<div class="chat-msg '+m.role+'"><div class="bubble">'+esc(m.text)+'</div></div>';
+    h+='<div class="chat-msg '+m.role+'"><div class="bubble">'+mdesc(m.text)+'</div></div>';
     if(m.changes&&m.changes.length){
       m.changes.forEach(function(c,j){
         var desc=typeof c==="string"?c:(c.description||JSON.stringify(c));
@@ -732,8 +732,16 @@ function renderDevices(devices) {
 }
 
 window.deviceCmd = function(id, action) {
-  apiPost(API_BASE + '/api/devices/' + id + '/command', {action: action});
-  setTimeout(function() { loadDevices() }, 2000);
+  // Show immediate feedback
+  var btn = event && event.target;
+  if (btn) { btn.textContent = action + 'ing...'; btn.disabled = true; }
+  apiPost(API_BASE + '/api/devices/' + id + '/command', {action: action})
+    .then(function() {
+      // Poll for updated status (heartbeat may take up to 5s)
+      setTimeout(loadDevices, 2000);
+      setTimeout(loadDevices, 5000);
+      setTimeout(loadDevices, 8000);
+    });
 };
 
 window.provisionDevice = function() {
@@ -768,6 +776,7 @@ function loadDevices() {
 function pathLabel(id){return pathLabels[id]||("Path "+id)}
 function num(v){return v!=null?Number(v).toFixed(1):"--"}
 function esc(s){if(!s)return"";var d=document.createElement("div");d.textContent=String(s);return d.innerHTML}
+function mdesc(s){if(!s)return"";var t=esc(s);return t.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>')}
 function fmtDur(sec){if(sec==null)return"--";sec=Math.floor(sec);var m=Math.floor(sec/60),sv=sec%60;
   if(m>=60){var h=Math.floor(m/60);return h+"h "+String(m%60).padStart(2,"0")+"m"}
   return m+"m "+String(sv).padStart(2,"0")+"s"}
