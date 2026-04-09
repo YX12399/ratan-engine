@@ -345,7 +345,7 @@ if(API_BASE) $("vps-url").value=API_BASE;
 window.setVpsUrl=function(){
   var url=$("vps-url").value.trim().replace(/\/$/,"");
   if(url){API_BASE=url;WS_BASE=url.replace(/^http/,"ws");localStorage.setItem("hyperagg_vps_url",url);
-    if(ws){ws.close();ws=null}connectWs();$("vps-url-ok").textContent="Saved!";
+    S=null;if(ws){ws.close();ws=null}connectWs();$("vps-url-ok").textContent="Saved!";
     setTimeout(function(){$("vps-url-ok").textContent=""},2000)}
   else{API_BASE="";WS_BASE="";localStorage.removeItem("hyperagg_vps_url");
     $("vps-url-ok").textContent="Cleared (using local)"}};
@@ -572,7 +572,10 @@ function renderActiveTest(s){
 // Tune actions
 function apiPost(url,body){
   return fetch(API_BASE+url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-    .then(function(r){return r.ok});
+    .then(function(r){return r.json().then(function(d){
+      if(d&&d.error){console.warn("API error:",d.error);return false}
+      return r.ok
+    }).catch(function(){return r.ok})});
 }
 window.setScheduler=function(){
   apiPost("/api/scheduler/mode",{mode:$("tune-sched").value}).then(function(ok){flash("tune-sched-ok",ok)});

@@ -216,7 +216,9 @@ def create_dashboard_app(
     async def ai_chat(req: ChatRequest):
         if not ai:
             return {"analysis": "AI chat not initialized", "suggested_changes": []}
-        return await ai.chat(req.message)
+        if not req.message or not req.message.strip():
+            return {"analysis": "Please type a question about your network.", "suggested_changes": []}
+        return await ai.chat(req.message.strip())
 
     @app.get("/api/ai/history")
     async def ai_history(last_n: int = Query(default=20, le=100)):
