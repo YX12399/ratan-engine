@@ -130,6 +130,15 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 </div>
 </div>
 <div class="card">
+<h3>Network Diagnostics</h3>
+<div class="form-row">
+<input type="text" id="diag-host" placeholder="8.8.8.8" style="width:200px">
+<button class="primary" onclick="runPing()">Ping</button>
+<button class="secondary" onclick="runTrace()">Traceroute</button>
+</div>
+<pre id="diag-output" style="font-size:11px;max-height:200px;overflow-y:auto;margin-top:8px;background:var(--g50);padding:8px;border-radius:4px"></pre>
+</div>
+<div class="card">
 <h3>Connect a Device</h3>
 <p style="font-size:13px;color:var(--g500);margin-bottom:10px">Run this on the client device to connect:</p>
 <div class="cmd-box" id="conn-cmd">
@@ -157,10 +166,10 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 <!-- MONITOR -->
 <div class="page active" id="page-monitor">
 <div class="grid-4" id="mon-top">
-<div class="card"><h3>Combined Throughput</h3><div class="big-num" id="m-throughput">--<small> Mbps</small></div></div>
-<div class="card"><h3>Effective Loss</h3><div class="big-num" id="m-loss">--<small> %</small></div></div>
-<div class="card"><h3>Active Paths</h3><div class="big-num" id="m-paths">--</div></div>
-<div class="card"><h3>FEC Recoveries</h3><div class="big-num" id="m-fec">--</div></div>
+<div class="card"><h3>Combined Throughput</h3><div class="big-num" id="m-throughput">--<small> Mbps</small></div><div id="tp-spark" style="height:22px;margin-top:4px"></div></div>
+<div class="card"><h3>Effective Loss</h3><div class="big-num" id="m-loss" title="Post-FEC packet loss rate across all paths">--<small> %</small></div></div>
+<div class="card"><h3>Active Paths</h3><div class="big-num" id="m-paths" title="Number of WAN paths currently alive and forwarding traffic">--</div></div>
+<div class="card"><h3>FEC Recoveries</h3><div class="big-num" id="m-fec" title="Packets recovered by Forward Error Correction that would have been lost">--</div></div>
 </div>
 <div class="grid-2" id="mon-paths"><p class="waiting">Waiting for path data...</p></div>
 <details class="collapsible" open>
@@ -169,6 +178,9 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 <div class="grid-4" id="engine-stats"></div>
 </div>
 </details>
+<div class="card" style="margin-top:12px">
+<h3>System <span id="sys-info-data" style="font-size:12px;float:right;color:var(--g500)"></span></h3>
+</div>
 <div class="grid-2">
 <div class="card">
 <h3>Live Packet Stream</h3>
@@ -181,6 +193,13 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 <h3>Event Log</h3>
 <div class="event-log" id="event-log"><p class="waiting">Waiting...</p></div>
 </div>
+<details class="collapsible">
+<summary>System Logs</summary>
+<div class="inner">
+<button class="secondary" onclick="loadLogs()" style="font-size:11px">Refresh</button>
+<pre id="log-viewer" style="font-size:10px;max-height:300px;overflow-y:auto;background:#111;color:#10b981;padding:8px;border-radius:4px;margin-top:8px"></pre>
+</div>
+</details>
 </div>
 </div>
 <!-- TUNE -->
@@ -265,6 +284,29 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 </div>
 </details>
 </div>
+<div class="card">
+<details class="collapsible">
+<summary>Bypass Rules</summary>
+<div class="inner">
+<div class="form-row">
+<input type="text" id="bypass-val" placeholder="domain or IP/CIDR" style="width:200px">
+<button class="secondary" onclick="addBypass()">Add</button>
+<button class="secondary" onclick="clearBypass()">Clear All</button>
+</div>
+<div id="bypass-list" style="margin-top:8px;font-size:12px"></div>
+</div>
+</details>
+</div>
+<div class="card">
+<details class="collapsible">
+<summary>Firewall &amp; Routes</summary>
+<div class="inner">
+<button class="secondary" onclick="loadFirewall()" style="font-size:11px">Load Rules</button>
+<button class="secondary" onclick="loadRoutes()" style="font-size:11px">Load Routes</button>
+<pre id="fw-output" style="font-size:10px;max-height:200px;overflow-y:auto;background:var(--g50);padding:8px;border-radius:4px;margin-top:8px"></pre>
+</div>
+</details>
+</div>
 </div>
 <!-- ANALYZE -->
 <div class="page" id="page-analyze">
@@ -305,7 +347,7 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 <script>
 (function(){
 "use strict";
-var S=null,ws=null,pollTimer=null,pathLabels={0:"Starlink",1:"Cellular"},chatMsgs=[];
+var S=null,ws=null,pollTimer=null,pathLabels={0:"Starlink",1:"Cellular"},chatMsgs=[],tpHistory=[],bypassRules=[];
 var $=function(id){return document.getElementById(id)};
 
 // API Base URL — empty when served from VPS directly, set to VPS address when on Vercel/external
@@ -419,6 +461,10 @@ function renderConnect(s){
 function renderMonitor(s){
   var m=s.metrics||{};
   $("m-throughput").innerHTML=num(m.aggregate_throughput_mbps)+'<small> Mbps</small>';
+  var curTp=m.aggregate_throughput_mbps||0;tpHistory.push(curTp);if(tpHistory.length>30)tpHistory.shift();
+  var maxTp=Math.max.apply(null,tpHistory)||1;var sparkH='';
+  tpHistory.forEach(function(v){var h=Math.min(20,Math.max(1,v/maxTp*20));sparkH+='<div style="display:inline-block;width:3px;height:'+h+'px;background:var(--blue);margin-right:1px;vertical-align:bottom"></div>'});
+  $("tp-spark").innerHTML=sparkH;
   $("m-loss").innerHTML=num(m.effective_loss_pct)+'<small> %</small>';
   var paths=s.paths||{};
   var alive=Object.values(paths).filter(function(p){return p.is_alive}).length;
@@ -445,9 +491,9 @@ function renderMonitor(s){
         '<div class="metric-row"><span class="label">Loss</span><span class="val">'+num(p.loss_pct)+'%</span></div>'+
         '<div class="metric-row"><span class="label">Jitter</span><span class="val">'+num(p.jitter_ms)+' ms</span></div>'+
         '<div class="metric-row"><span class="label">Throughput</span><span class="val">'+num(p.throughput_mbps)+' Mbps</span></div>'+
-        '<div class="metric-row"><span class="label">Quality</span><span class="val">'+(qs!=null?qs.toFixed(2):"--")+'</span></div>'+
+        '<div class="metric-row" title="Weighted composite of RTT, loss, and jitter (0=worst, 1=best)"><span class="label">Quality</span><span class="val">'+(qs!=null?qs.toFixed(2):"--")+'</span></div>'+
         '<div class="quality-bar"><div class="quality-bar-inner" style="width:'+qw+'%;background:'+qc+'"></div></div>'+
-        '<div class="pred">Delivery: <b>'+(pr.delivery_probability!=null?(pr.delivery_probability*100).toFixed(1)+"%":"--")+'</b>'+
+        '<div class="pred" title="Chance this path delivers a packet within the latency budget">Delivery: <b>'+(pr.delivery_probability!=null?(pr.delivery_probability*100).toFixed(1)+"%":"--")+'</b>'+
         ' &middot; Trend: <span class="'+tc+'">'+esc(pr.trend||"--")+'</span>'+
         ' &middot; '+esc(pr.recommended_action||"")+'</div>'+
         '<div style="margin-top:8px;font-size:12px;color:var(--g500)">Traffic share: '+share+'%</div>'+
@@ -495,7 +541,7 @@ function renderMonitor(s){
   // Card 1: Throughput Efficiency
   var eff = tp.efficiency_pct || 0;
   var effColor = eff > 80 ? 'var(--green)' : eff > 50 ? 'var(--yellow)' : 'var(--red)';
-  ei += '<div class="mini-card"><div class="mini-title">Throughput</div>';
+  ei += '<div class="mini-card" title="Effective throughput after subtracting FEC overhead and reorder costs"><div class="mini-title">Throughput</div>';
   ei += '<div class="mini-value">' + num(tp.effective_throughput_mbps) + ' / ' + num(tp.raw_throughput_mbps) + ' Mbps</div>';
   ei += '<div class="mini-detail" style="color:'+effColor+'">Efficiency: ' + num(eff) + '%</div>';
   ei += '<div class="mini-detail">FEC: ' + num((tp.fec_overhead_ratio||0)*100) + '% | Reorder: ' + num(tp.reorder_cost_mbps) + ' Mbps</div></div>';
@@ -790,6 +836,54 @@ function loadDevices() {
     renderDevices(d);
   }).catch(function() {});
 }
+
+// System Info
+function loadSysInfo(){
+  fetch(API_BASE+"/api/system/info").then(function(r){return r.json()}).then(function(d){
+    var u=d.uptime_sec||0,days=Math.floor(u/86400),hrs=Math.floor((u%86400)/3600);
+    $("sys-info-data").textContent="CPU: "+num(d.cpu_pct)+"% | Memory: "+num(d.memory_pct)+"% ("+num(d.memory_used_mb)+"/"+num(d.memory_total_mb)+" MB) | Disk: "+num(d.disk_pct)+"% | Uptime: "+days+"d "+hrs+"h";
+  }).catch(function(){$("sys-info-data").textContent="unavailable"});
+}
+loadSysInfo();setInterval(loadSysInfo,30000);
+
+// Diagnostics
+window.runPing=function(){
+  var h=$("diag-host").value.trim()||"8.8.8.8";$("diag-output").textContent="Running ping...";
+  fetch(API_BASE+"/api/diagnostics/ping",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({host:h})}).then(function(r){return r.json()}).then(function(d){$("diag-output").textContent=d.output||d.error||JSON.stringify(d)}).catch(function(e){$("diag-output").textContent="Error: "+e});
+};
+window.runTrace=function(){
+  var h=$("diag-host").value.trim()||"8.8.8.8";$("diag-output").textContent="Running traceroute (may take a moment)...";
+  fetch(API_BASE+"/api/diagnostics/traceroute",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({host:h})}).then(function(r){return r.json()}).then(function(d){$("diag-output").textContent=d.output||d.error||JSON.stringify(d)}).catch(function(e){$("diag-output").textContent="Error: "+e});
+};
+
+// Logs
+window.loadLogs=function(){
+  $("log-viewer").textContent="Loading...";
+  fetch(API_BASE+"/api/system/logs?lines=50").then(function(r){return r.json()}).then(function(d){$("log-viewer").textContent=(d.lines||[]).join("\n")||d.output||"No logs"}).catch(function(e){$("log-viewer").textContent="Error: "+e});
+};
+
+// Bypass Rules
+window.addBypass=function(){
+  var v=$("bypass-val").value.trim();if(!v)return;
+  apiPost("/api/bypass/add",{rule:v}).then(function(){$("bypass-val").value="";loadBypass()});
+};
+window.clearBypass=function(){apiPost("/api/bypass/clear",{}).then(loadBypass)};
+function loadBypass(){
+  fetch(API_BASE+"/api/bypass/list").then(function(r){return r.json()}).then(function(d){
+    var rules=d.rules||[];if(!rules.length){$("bypass-list").textContent="No bypass rules";return}
+    var h="";rules.forEach(function(r){h+='<div style="padding:2px 0">'+esc(r)+'</div>'});$("bypass-list").innerHTML=h;
+  }).catch(function(){$("bypass-list").textContent="Could not load"});
+}
+
+// Firewall & Routes
+window.loadFirewall=function(){
+  $("fw-output").textContent="Loading...";
+  fetch(API_BASE+"/api/system/firewall").then(function(r){return r.json()}).then(function(d){$("fw-output").textContent=d.output||d.rules||JSON.stringify(d,null,2)}).catch(function(e){$("fw-output").textContent="Error: "+e});
+};
+window.loadRoutes=function(){
+  $("fw-output").textContent="Loading...";
+  fetch(API_BASE+"/api/system/routes").then(function(r){return r.json()}).then(function(d){$("fw-output").textContent=d.output||d.routes||JSON.stringify(d,null,2)}).catch(function(e){$("fw-output").textContent="Error: "+e});
+};
 
 // Helpers
 function pathLabel(id){return pathLabels[id]||("Path "+id)}

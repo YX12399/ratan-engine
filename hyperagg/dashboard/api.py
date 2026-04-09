@@ -414,6 +414,146 @@ def create_dashboard_app(
             await ws.accept()
             await ws.close(code=4000, reason="Device registry not available")
 
+    # ── System Info, Diagnostics, Logs ──
+
+    @app.get("/api/system/info")
+    async def system_info():
+        """System resource info — CPU, memory, uptime, disk."""
+        import platform
+        info = {"hostname": platform.node(), "platform": platform.platform()}
+        try:
+            import psutil
+            info["cpu_pct"] = psutil.cpu_percent(interval=0.1)
+            mem = psutil.virtual_memory()
+            info["memory_pct"] = round(mem.percent, 1)
+            info["memory_total_mb"] = round(mem.total / 1e6)
+            info["memory_used_mb"] = round(mem.used / 1e6)
+            disk = psutil.disk_usage("/")
+            info["disk_pct"] = round(disk.percent, 1)
+            info["disk_total_gb"] = round(disk.total / 1e9, 1)
+            info["uptime_sec"] = round(time.time() - psutil.boot_time())
+            info["load_avg"] = list(psutil.getloadavg())
+        except ImportError:
+            info["error"] = "psutil not installed"
+        return info
+
+    @app.post("/api/diagnostics/ping")
+    async def diag_ping(req: dict):
+        """Ping a host from the server."""
+        import subprocess as sp
+        host = req.get("host", "8.8.8.8")
+        count = min(req.get("count", 4), 10)
+        try:
+            result = sp.run(
+                ["ping", "-c", str(count), "-W", "2", host],
+                capture_output=True, text=True, timeout=15,
+            )
+            return {"host": host, "output": result.stdout, "success": result.returncode == 0}
+        except Exception as e:
+            return {"host": host, "output": str(e), "success": False}
+
+    @app.post("/api/diagnostics/traceroute")
+    async def diag_traceroute(req: dict):
+        """Traceroute to a host."""
+        import subprocess as sp
+        host = req.get("host", "8.8.8.8")
+        try:
+            result = sp.run(
+                ["traceroute", "-m", "15", "-w", "2", host],
+                capture_output=True, text=True, timeout=30,
+            )
+            return {"host": host, "output": result.stdout or result.stderr, "success": result.returncode == 0}
+        except FileNotFoundError:
+            return {"host": host, "output": "traceroute not installed", "success": False}
+        except Exception as e:
+            return {"host": host, "output": str(e), "success": False}
+
+    @app.get("/api/logs")
+    async def system_logs(lines: int = Query(default=100, le=500)):
+        """Get recent engine log lines."""
+        import subprocess as sp
+        try:
+            result = sp.run(
+                ["journalctl", "-u", "ratan-engine", "--no-pager", "-n", str(lines), "--output", "short"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.stdout:
+                return {"lines": result.stdout.strip().split("\n"), "source": "journalctl"}
+        except Exception:
+            pass
+        # Fallback: try reading log from a common location
+        for log_path in ["/var/log/hyperagg.log", "logs/engine.log"]:
+            try:
+                from pathlib import Path
+                p = Path(log_path)
+                if p.exists():
+                    all_lines = p.read_text().strip().split("\n")
+                    return {"lines": all_lines[-lines:], "source": log_path}
+            except Exception:
+                pass
+        return {"lines": ["No log source available. Start with --log-file to enable."], "source": "none"}
+
+    @app.get("/api/config")
+    async def get_config():
+        """Get current config (sanitized — no encryption keys)."""
+        state = ctrl.get_system_state()
+        config_out = {}
+        for key in ["scheduler", "fec", "qos", "tunnel"]:
+            if key in state:
+                config_out[key] = state[key]
+        return config_out
+
+    @app.get("/api/firewall")
+    async def get_firewall():
+        """Get current iptables rules (read-only)."""
+        import subprocess as sp
+        rules = {}
+        for table in ["filter", "nat", "mangle"]:
+            try:
+                result = sp.run(["iptables", "-t", table, "-L", "-n", "--line-numbers"],
+                                capture_output=True, text=True, timeout=5)
+                rules[table] = result.stdout.strip().split("\n") if result.stdout else []
+            except Exception:
+                rules[table] = ["iptables not available"]
+        return rules
+
+    @app.get("/api/routes")
+    async def get_routes():
+        """Get current routing table."""
+        import subprocess as sp
+        try:
+            result = sp.run(["ip", "route", "show"], capture_output=True, text=True, timeout=5)
+            return {"routes": result.stdout.strip().split("\n") if result.stdout else []}
+        except Exception:
+            return {"routes": ["ip command not available"]}
+
+    @app.post("/api/bypass/add")
+    async def add_bypass(req: dict):
+        """Add a bypass rule (domain or IP)."""
+        from hyperagg.controller.bypass_rules import BypassRules
+        if not hasattr(app, '_bypass'):
+            app._bypass = BypassRules()
+        domain = req.get("domain", "")
+        ip = req.get("ip", "")
+        if domain:
+            return app._bypass.add_domain(domain)
+        elif ip:
+            return app._bypass.add_ip(ip)
+        return {"error": "Provide domain or ip"}
+
+    @app.get("/api/bypass")
+    async def get_bypass():
+        if not hasattr(app, '_bypass'):
+            from hyperagg.controller.bypass_rules import BypassRules
+            app._bypass = BypassRules()
+        return app._bypass.get_rules()
+
+    @app.post("/api/bypass/clear")
+    async def clear_bypass():
+        if hasattr(app, '_bypass'):
+            return app._bypass.clear_all()
+        return {"status": "ok"}
+
     # ── WebSocket for live updates ──
 
     @app.websocket("/ws")
