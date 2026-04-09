@@ -1,0 +1,36 @@
+{
+  "id": "ea4f26e1",
+  "name": "test1",
+  "description": "",
+  "started_at": 1775766183.4832532,
+  "ended_at": 1775766183.4838457,
+  "duration_target_sec": 0.6,
+  "status": "completed",
+  "test_type": "standard",
+  "variant_a": null,
+  "variant_b": null,
+  "summary": {
+    "duration_sec": 0.0,
+    "snapshots_count": 1,
+    "per_path": {},
+    "aggregate": {
+      "avg_throughput_mbps": 0,
+      "max_throughput_mbps": 0,
+      "avg_effective_loss_pct": 0,
+      "total_fec_recoveries": 0
+    },
+    "scheduler_mode": "",
+    "fec_mode": ""
+  },
+  "snapshots": [
+    {
+      "timestamp": 1775766183.4834173,
+      "elapsed_sec": 0.0,
+      "paths": {},
+      "metrics": {},
+      "fec": {},
+      "scheduler": {},
+      "variant": ""
+    }
+  ]
+}

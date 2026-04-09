@@ -1,0 +1,102 @@
+{
+  "name": "Stress Test: Starlink Dropout",
+  "duration_ticks": 90,
+  "scenario": "starlink_dropout",
+  "hyperagg": {
+    "total_packets": 9000,
+    "delivered_packets": 18511,
+    "lost_packets": 564,
+    "recovered_by_fec": 36,
+    "effective_loss_pct": 6.27,
+    "avg_latency_ms": 55.6,
+    "p95_latency_ms": 96.2,
+    "max_disruption_ms": 1000,
+    "throughput_mbps": 2.3,
+    "recovery_events": [
+      {
+        "tick": 24,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 31,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 35,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 40,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 41,
+        "packets_recovered": 5,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 42,
+        "packets_recovered": 3,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 43,
+        "packets_recovered": 2,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 44,
+        "packets_recovered": 5,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 45,
+        "packets_recovered": 4,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 46,
+        "packets_recovered": 2,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 47,
+        "packets_recovered": 6,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 48,
+        "packets_recovered": 2,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 49,
+        "packets_recovered": 3,
+        "method": "reed_solomon"
+      }
+    ]
+  },
+  "mptcp": {
+    "total_packets": 9000,
+    "delivered_packets": 7693,
+    "lost_packets": 1307,
+    "recovered_by_fec": 0,
+    "effective_loss_pct": 14.52,
+    "avg_latency_ms": 130.9,
+    "p95_latency_ms": 444.9,
+    "max_disruption_ms": 10000,
+    "throughput_mbps": 0.9,
+    "recovery_events": []
+  },
+  "improvement": {
+    "loss_reduction_pct": 8.25,
+    "latency_improvement_ms": 75.3,
+    "disruption_improvement_ms": 9000,
+    "throughput_gain_mbps": 1.4,
+    "fec_recoveries": 36
+  }
+}
