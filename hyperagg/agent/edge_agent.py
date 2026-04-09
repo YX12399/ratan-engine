@@ -232,7 +232,7 @@ class EdgeAgent:
                     "client_ip": "10.99.0.1",
                 },
                 "interfaces": {"wan_interfaces": self._config.get("interfaces", [])},
-                "tunnel": {"mtu": 1400, "keepalive_interval_ms": 1000, "sequence_window": 1024, "reorder_timeout_ms": 100},
+                "tunnel": {"mtu": 1280, "keepalive_interval_ms": 1000, "sequence_window": 1024, "reorder_timeout_ms": 100},
                 "fec": {"mode": "auto", "xor_group_size": 4, "rs_data_shards": 8, "rs_parity_shards": 2},
                 "scheduler": {
                     "mode": "ai", "history_window": 50, "ewma_alpha": 0.3,

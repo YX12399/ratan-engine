@@ -14,7 +14,7 @@ interfaces:
   wan_interfaces: []  # Auto-detected at runtime
 
 tunnel:
-  mtu: 1400
+  mtu: 1280  # Safe for all paths (Starlink, cellular, VPN). Inner: 1280, Outer: 1280+28+16+8+20=1352
   keepalive_interval_ms: 1000
   sequence_window: 1024
   handshake_timeout_sec: 10

@@ -328,43 +328,58 @@ class TunnelServer:
                 await asyncio.sleep(0.001)
 
     async def _send_return(self, payload: bytes) -> None:
-        """Send return traffic to all known client paths."""
-        # Find the active session
+        """Send return traffic with FEC to all known client paths."""
         session = self._find_active_session()
         if not session or not session.path_addrs:
             return
 
-        # Build packet
-        pkt = HyperAggPacket.create_data(
-            payload=payload,
-            path_id=0,
-            seq=self._return_path_seq,
-            global_seq=self._return_global_seq,
-        )
+        # FEC encode return traffic (same as client does for outbound)
+        fec_results = self._fec.encode_packet(payload, "streaming")
 
-        # Encrypt — set payload_len to encrypted size BEFORE building AAD
-        if self._crypto:
-            from hyperagg.tunnel.crypto import TAG_SIZE
-            pkt.payload_len = len(pkt.payload) + TAG_SIZE
-            aad = pkt.header_bytes()
-            encrypted = self._crypto.encrypt(
-                pkt.payload, aad,
-                pkt.global_seq, pkt.path_id,
-            )
-            pkt.payload = encrypted
+        for fec_payload, fec_meta in fec_results:
+            if fec_meta.get("is_parity"):
+                pkt = HyperAggPacket.create_fec_parity(
+                    parity_data=fec_payload,
+                    path_id=0,
+                    seq=self._return_path_seq,
+                    global_seq=self._return_global_seq,
+                    fec_group_id=fec_meta["fec_group_id"],
+                    fec_index=fec_meta["fec_index"],
+                    fec_group_size=fec_meta["fec_group_size"],
+                )
+            else:
+                pkt = HyperAggPacket.create_data(
+                    payload=fec_payload,
+                    path_id=0,
+                    seq=self._return_path_seq,
+                    global_seq=self._return_global_seq,
+                    fec_group_id=fec_meta.get("fec_group_id", 0),
+                    fec_index=fec_meta.get("fec_index", 0),
+                    fec_group_size=fec_meta.get("fec_group_size", 0),
+                )
 
-        wire = pkt.serialize()
+            # Encrypt
+            if self._crypto:
+                from hyperagg.tunnel.crypto import TAG_SIZE
+                pkt.payload_len = len(pkt.payload) + TAG_SIZE
+                aad = pkt.header_bytes()
+                encrypted = self._crypto.encrypt(
+                    pkt.payload, aad, pkt.global_seq, pkt.path_id,
+                )
+                pkt.payload = encrypted
 
-        # Send to ALL client path addresses (client deduplicates)
-        for path_id, addr in session.path_addrs.items():
-            try:
-                self._sock.sendto(wire, addr)
-                self.packets_sent += 1
-            except OSError as e:
-                logger.debug(f"Return send failed to {addr}: {e}")
+            wire = pkt.serialize()
 
-        self._return_global_seq += 1
-        self._return_path_seq += 1
+            # Send to ALL client path addresses (client deduplicates)
+            for path_id, addr in session.path_addrs.items():
+                try:
+                    self._sock.sendto(wire, addr)
+                    self.packets_sent += 1
+                except OSError as e:
+                    logger.debug(f"Return send failed to {addr}: {e}")
+
+            self._return_global_seq += 1
+            self._return_path_seq += 1
 
     def _find_active_session(self) -> Optional[ClientSession]:
         """Find the most recently active client session."""

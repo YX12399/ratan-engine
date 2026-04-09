@@ -389,6 +389,17 @@ class TunnelClient:
                             fec_index=fec_meta.get("fec_index", 0),
                             scheduler_reason=decision.reason,
                         )
+                except BlockingIOError:
+                    # Socket buffer full — retry once after brief yield
+                    await asyncio.sleep(0.001)
+                    try:
+                        self._sockets[pid].sendto(
+                            wire, (self._server_addr, self._server_port)
+                        )
+                        self._pacer.consume(pid, len(wire))
+                        self._path_seqs[pid] = path_seq + 1
+                    except OSError:
+                        logger.debug(f"Packet dropped on path {pid} (buffer full)")
                 except OSError as e:
                     logger.warning(f"Send failed on path {pid}: {e}")
 
@@ -411,6 +422,9 @@ class TunnelClient:
                 self._tier_mgr.reset_window()
                 self._tier_reset_time = now
 
+            # CRITICAL: increment global_seq per FEC output packet (not per input)
+            # This ensures data packets and parity packets have different seq numbers
+            # so the server's dedup doesn't drop the parity as a "duplicate"
             self._global_seq += 1
 
     async def _rx_loop(self) -> None:
@@ -632,11 +646,12 @@ class TunnelClient:
         if len(ip_packet) < 20:
             return "bulk"
 
-        # Parse IP header
+        # Parse IP header — use IHL for correct header length
         protocol = ip_packet[9]
+        ihl = (ip_packet[0] & 0x0F) * 4  # IP header length (handles options)
         if protocol == 17:  # UDP
-            if len(ip_packet) >= 28:
-                dst_port = struct.unpack("!H", ip_packet[22:24])[0]
+            if len(ip_packet) >= ihl + 4:
+                dst_port = struct.unpack("!H", ip_packet[ihl + 2:ihl + 4])[0]
                 for tier_name, tier_cfg in qos_cfg.get("tiers", {}).items():
                     ports_str = tier_cfg.get("ports", "")
                     if self._port_in_range(dst_port, ports_str):
