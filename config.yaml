@@ -45,7 +45,7 @@ qos:
     realtime:
       mark: 1
       bandwidth_pct: 60
-      ports: "3478-3481"
+      ports: "3478-3481,5348-5352,8801-8810,19302-19309"  # STUN/TURN + Teams + Zoom + Google Meet
       protocol: "udp"
       fec_mode: "replicate"
     streaming:

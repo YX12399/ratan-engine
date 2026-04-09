@@ -655,17 +655,21 @@ class TunnelClient:
 
     @staticmethod
     def _port_in_range(port: int, range_str: str) -> bool:
-        """Check if port is in a range like '3478-3481' or '5201'."""
+        """Check if port is in a range like '3478-3481' or '3478-3481,5348-5352'."""
         if not range_str:
             return False
-        try:
-            if "-" in range_str:
-                low, high = range_str.split("-")
-                return int(low) <= port <= int(high)
-            else:
-                return port == int(range_str)
-        except (ValueError, TypeError):
-            return False
+        for part in range_str.split(","):
+            part = part.strip()
+            try:
+                if "-" in part:
+                    low, high = part.split("-")
+                    if int(low) <= port <= int(high):
+                        return True
+                elif port == int(part):
+                    return True
+            except (ValueError, TypeError):
+                continue
+        return False
 
     def get_metrics(self) -> dict:
         """Get all client metrics for dashboard, including all 7 modules."""

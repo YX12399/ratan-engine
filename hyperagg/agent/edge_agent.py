@@ -123,6 +123,7 @@ class EdgeAgent:
         # State
         self._running = False
         self._tunnel_task: Optional[asyncio.Task] = None
+        self._tunnel_client = None  # TunnelClient reference for metrics
         self._tunnel_status = "stopped"  # stopped, starting, running, error, stopping
         self._tunnel_error = ""
         self._vps_connected = False
@@ -152,8 +153,8 @@ class EdgeAgent:
         logger.info(f"Config saved to {path}")
 
     def get_status(self) -> dict:
-        """Full device status for API/WebSocket."""
-        return {
+        """Full device status for API/WebSocket — includes tunnel metrics."""
+        status = {
             "device_id": self._device_id,
             "tunnel_status": self._tunnel_status,
             "tunnel_error": self._tunnel_error,
@@ -166,6 +167,13 @@ class EdgeAgent:
             "encryption_configured": bool(self._encryption_key),
             "config_path": self._config_path,
         }
+        # Include full tunnel metrics when tunnel is running
+        if self._tunnel_client and self._tunnel_status == "running":
+            try:
+                status["tunnel_metrics"] = self._tunnel_client.get_metrics()
+            except Exception:
+                pass
+        return status
 
     # ── Tunnel Lifecycle ──
 
@@ -231,7 +239,22 @@ class EdgeAgent:
                     "latency_budget_ms": 150, "probe_interval_ms": 100,
                     "jitter_weight": 0.3, "loss_weight": 0.5, "rtt_weight": 0.2,
                 },
-                "qos": {"enabled": False},
+                "qos": {
+                    "enabled": True,
+                    "tiers": {
+                        "realtime": {
+                            "ports": "3478-3481,5348-5352,8801-8810,19302-19309",
+                            "fec_mode": "replicate",
+                            "bandwidth_pct": 60,
+                        },
+                        "streaming": {
+                            "ports": "5000-5010,8000-8100",
+                            "fec_mode": "reed_solomon",
+                            "bandwidth_pct": 30,
+                        },
+                        "bulk": {"fec_mode": "xor", "bandwidth_pct": 10},
+                    },
+                },
             }
 
             # Import and run the client
@@ -240,6 +263,7 @@ class EdgeAgent:
             from hyperagg.controller.network_manager import NetworkManager
 
             client = TunnelClient(tunnel_config)
+            self._tunnel_client = client  # Store for metrics access
             nm = NetworkManager(tunnel_config)
 
             # Auto-detect interfaces if not specified

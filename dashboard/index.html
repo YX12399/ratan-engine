@@ -913,8 +913,14 @@ window.wizNext=function(step){for(var i=1;i<=3;i++)$('wiz-'+i).style.display=i==
   $('wiz-step').innerHTML='<b>Step '+step+':</b> '+['Enter VPS address','Configure interfaces','Review & connect'][step-1]};
 window.wizFinish=function(){var vps=$('wiz-vps').value,key=$('wiz-key').value,wan=$('wiz-wan').value.split(',').map(function(s){return s.trim()}).filter(Boolean),lan=$('wiz-lan').value.trim();
   if(vps){API_BASE='http://'+vps+':8080';WS_BASE='ws://'+vps+':8080';localStorage.setItem('hyperagg_vps_url',API_BASE);
-    apiPost('/api/agent/configure',{vps_host:vps,encryption_key:key,interfaces:wan,lan_interface:lan}).then(function(){
-      apiPost('/api/agent/start',{}).then(function(){$('wiz-step').innerHTML='<span style="color:var(--green)">\u2713 Bonding started!</span>'})
+    fetch(API_BASE+'/api/devices',{method:'GET'}).then(function(r){return r.json()}).then(function(devs){
+      var connected=devs.filter(function(x){return x.connected});
+      if(connected.length>0){
+        apiPost('/api/devices/'+connected[0].device_id+'/command',{action:'start',
+          config:{vps_host:vps,encryption_key:key,interfaces:wan,lan_interface:lan}}).then(function(){
+          $('wiz-step').innerHTML='<span style="color:var(--green)">\u2713 Start sent to '+connected[0].device_id+'</span>'});
+      }else{
+        $('wiz-step').innerHTML='<span style="color:var(--yellow)">\u26A0 No device connected yet. On RPi run:<br><code style="font-size:11px">sudo bash setup_rpi_client.sh --vps '+vps+' --key '+key+'</code></span>'}
     }).catch(function(e){$('wiz-step').innerHTML='<span style="color:var(--red)">Error: '+e+'</span>'})}};
 // DHCP Leases
 function loadDhcp(){fetch(API_BASE+'/api/dhcp/leases').then(function(r){return r.json()}).then(function(d){
