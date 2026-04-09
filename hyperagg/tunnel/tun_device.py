@@ -191,6 +191,7 @@ class TunDevice:
         via_tun: Optional[list[str]] = None,
         vps_ip: Optional[str] = None,
         wan_routes: Optional[list[dict]] = None,
+        lan_subnet: Optional[str] = None,
     ) -> None:
         """
         Set up routing so traffic flows through the TUN device.
@@ -200,7 +201,19 @@ class TunDevice:
             vps_ip: VPS IP address (must NOT route through TUN to avoid loops).
             wan_routes: List of {"ip": vps_ip, "gateway": gw, "interface": iface}
                         to keep direct routes for outer UDP tunnel packets.
+            lan_subnet: LAN subnet to EXCLUDE from tunnel (e.g., "192.168.50.0/24").
         """
+        # LOCAL SUBNET BYPASS — LAN traffic must NOT enter the tunnel
+        if lan_subnet:
+            subprocess.run(
+                ["ip", "route", "add", lan_subnet, "dev", self.name.replace("hagg", "eth"),
+                 "scope", "link", "metric", "1"],
+                capture_output=True,
+            )
+            # Simpler: just ensure the local subnet route exists via the LAN interface
+            # (kernel should already have this, but be explicit)
+            logger.info(f"Local subnet {lan_subnet} bypasses tunnel")
+
         if via_tun:
             for cidr in via_tun:
                 subprocess.run(

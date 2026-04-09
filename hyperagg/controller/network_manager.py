@@ -167,20 +167,24 @@ class NetworkManager:
         tun_name: str = "hagg0",
     ) -> None:
         """
-        Configure the Beelink/TP-Link as a LAN gateway so connected laptops
-        route through the HyperAgg tunnel.
+        Configure the RPi/Beelink as a LAN gateway for connected laptops.
 
-        Physical setup:
-            Laptop → (WiFi/eth) → Beelink LAN port → HyperAgg TUN → VPS → Internet
+        Handles the DUAL-USE case where the LAN interface (eth0) is also
+        the upstream path for Starlink (laptop has Starlink WiFi, RPi
+        gets internet through the laptop via the same ethernet cable).
 
-        This sets up:
-            1. LAN interface IP assignment
-            2. IP forwarding
-            3. FORWARD rules: LAN ↔ TUN
-            4. MASQUERADE from LAN through TUN
+        Routing setup:
+          1. LAN IP + interface UP
+          2. IP forwarding enabled
+          3. rp_filter disabled on LAN interface (dual-use fix)
+          4. Local traffic bypass (192.168.50.x stays local, NOT tunneled)
+          5. FORWARD: LAN → TUN for internet-bound traffic
+          6. FORWARD: TUN → LAN for return traffic (RELATED,ESTABLISHED)
+          7. MASQUERADE: LAN traffic going through TUN
+          8. DHCP + DNS via dnsmasq
         """
         try:
-            # Assign LAN IP if not already set
+            # 1. Assign LAN IP
             subprocess.run(
                 ["ip", "addr", "add", f"{lan_ip}/24", "dev", lan_interface],
                 capture_output=True,
@@ -191,31 +195,113 @@ class NetworkManager:
             )
             logger.info(f"LAN interface {lan_interface} at {lan_ip}")
 
-            # Enable IP forwarding
+            # 2. Enable IP forwarding
+            subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], capture_output=True)
+
+            # 3. Disable rp_filter on LAN interface (CRITICAL for dual-use)
+            # When eth0 is both LAN input and tunnel output, the kernel's
+            # reverse path filter drops packets because return path doesn't
+            # match outgoing path. Disable it on this interface.
+            for sysctl_path in [
+                f"net.ipv4.conf.{lan_interface}.rp_filter",
+                "net.ipv4.conf.all.rp_filter",
+            ]:
+                subprocess.run(
+                    ["sysctl", "-w", f"{sysctl_path}=0"],
+                    capture_output=True,
+                )
+            logger.info(f"rp_filter disabled on {lan_interface} (dual-use mode)")
+
+            # 4. LOCAL TRAFFIC BYPASS — packets to 192.168.50.x must NOT
+            # go through the tunnel. They stay on the LAN.
+            # Mark local-destined packets so they use the main routing table
             subprocess.run(
-                ["sysctl", "-w", "net.ipv4.ip_forward=1"],
+                ["iptables", "-t", "mangle", "-I", "PREROUTING",
+                 "-d", lan_subnet, "-j", "ACCEPT"],
+                capture_output=True,
+            )
+            # Ensure local traffic doesn't hit FORWARD chain
+            subprocess.run(
+                ["iptables", "-I", "FORWARD",
+                 "-s", lan_subnet, "-d", lan_subnet, "-j", "ACCEPT"],
+                capture_output=True,
+            )
+            logger.info(f"Local traffic bypass: {lan_subnet} stays local")
+
+            # 5. FORWARD: LAN → TUN (internet-bound traffic from laptop)
+            subprocess.run(
+                ["iptables", "-A", "FORWARD",
+                 "-i", lan_interface, "-o", tun_name, "-j", "ACCEPT"],
                 capture_output=True,
             )
 
-            # FORWARD rules: allow LAN ↔ TUN traffic
-            for cmd in [
-                ["iptables", "-A", "FORWARD", "-i", lan_interface, "-o", tun_name, "-j", "ACCEPT"],
-                ["iptables", "-A", "FORWARD", "-i", tun_name, "-o", lan_interface,
+            # 6. FORWARD: TUN → LAN (return traffic)
+            subprocess.run(
+                ["iptables", "-A", "FORWARD",
+                 "-i", tun_name, "-o", lan_interface,
                  "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"],
-            ]:
-                subprocess.run(cmd, capture_output=True)
+                capture_output=True,
+            )
 
-            # NAT: masquerade LAN traffic going through TUN
+            # 7. MASQUERADE: NAT LAN traffic going through TUN
             subprocess.run(
                 ["iptables", "-t", "nat", "-A", "POSTROUTING",
                  "-s", lan_subnet, "-o", tun_name, "-j", "MASQUERADE"],
                 capture_output=True,
             )
 
+            # 8. Start DHCP + DNS via dnsmasq
+            self._start_dnsmasq(lan_interface, lan_ip, lan_subnet)
+
             logger.info(f"LAN gateway ready: {lan_subnet} → {tun_name}")
 
         except Exception as e:
             logger.error(f"LAN gateway setup failed: {e}")
+
+    def _start_dnsmasq(
+        self,
+        lan_interface: str,
+        lan_ip: str,
+        lan_subnet: str,
+    ) -> None:
+        """Start dnsmasq for DHCP + DNS on the LAN interface."""
+        try:
+            # Check if dnsmasq is installed
+            result = subprocess.run(["which", "dnsmasq"], capture_output=True)
+            if result.returncode != 0:
+                logger.warning("dnsmasq not installed — laptop needs manual IP config")
+                return
+
+            # Write dnsmasq config
+            subnet_prefix = lan_ip.rsplit(".", 1)[0]
+            config = (
+                f"interface={lan_interface}\n"
+                f"bind-interfaces\n"
+                f"dhcp-range={subnet_prefix}.100,{subnet_prefix}.200,255.255.255.0,12h\n"
+                f"dhcp-option=option:router,{lan_ip}\n"
+                f"dhcp-option=option:dns-server,{lan_ip}\n"
+                f"server=8.8.8.8\n"
+                f"server=1.1.1.1\n"
+                f"no-resolv\n"
+                f"log-queries\n"
+            )
+
+            config_path = "/tmp/hyperagg-dnsmasq.conf"
+            with open(config_path, "w") as f:
+                f.write(config)
+
+            # Kill any existing dnsmasq on this interface
+            subprocess.run(["pkill", "-f", f"dnsmasq.*{lan_interface}"], capture_output=True)
+
+            # Start dnsmasq
+            subprocess.Popen(
+                ["dnsmasq", f"--conf-file={config_path}", "--no-daemon"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            logger.info(f"dnsmasq started: DHCP {subnet_prefix}.100-200, DNS via 8.8.8.8")
+
+        except Exception as e:
+            logger.warning(f"dnsmasq start failed: {e} — laptop needs manual IP config")
 
     def get_all_interfaces(self) -> dict[str, InterfaceInfo]:
         return dict(self._interfaces)

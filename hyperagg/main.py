@@ -253,7 +253,7 @@ async def run_client(args, config: dict) -> None:
         client.tun = tun
         logger.info(f"TUN hagg0 at {client_ip}")
 
-    # Discover and add interfaces
+    # Discover and add WAN interfaces
     nm = NetworkManager(config)
 
     if args.interfaces:
@@ -266,6 +266,25 @@ async def run_client(args, config: dict) -> None:
             discovered = nm.discover_interfaces()
             wan_ifaces = [i.name for i in discovered]
             logger.info(f"Auto-detected {len(wan_ifaces)} interfaces: {wan_ifaces}")
+
+    # FIX: Remove LAN interface from WAN paths (prevents routing loop)
+    if args.lan_interface and args.lan_interface in wan_ifaces:
+        wan_ifaces.remove(args.lan_interface)
+        logger.info(f"Excluded LAN interface {args.lan_interface} from WAN paths")
+
+    # FIX: Retry interface detection for late USB tethers
+    if not wan_ifaces:
+        logger.info("No WAN interfaces yet — waiting for USB tether (retrying 3x)...")
+        for retry in range(3):
+            await asyncio.sleep(5)
+            discovered = nm.discover_interfaces()
+            wan_ifaces = [
+                i.name for i in discovered
+                if i.name != args.lan_interface
+            ]
+            if wan_ifaces:
+                logger.info(f"Found interfaces on retry {retry+1}: {wan_ifaces}")
+                break
 
     if not wan_ifaces:
         logger.error(
@@ -312,7 +331,10 @@ async def run_client(args, config: dict) -> None:
                         "interface": iface_name,
                     }
                 )
-        await tun.setup_routing(vps_ip=vps_host, wan_routes=wan_routes)
+        lan_subnet = f"{args.lan_ip.rsplit('.', 1)[0]}.0/24" if args.lan_interface else None
+        await tun.setup_routing(
+            vps_ip=vps_host, wan_routes=wan_routes, lan_subnet=lan_subnet
+        )
 
     # Set up LAN gateway (Beelink router mode)
     if args.lan_interface and tun and tun.is_open:
