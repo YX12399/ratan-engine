@@ -286,6 +286,20 @@ def create_dashboard_app(
             return None
         return tests.get_test(test_id)
 
+    @app.get("/api/tests/{test_id}/json")
+    async def test_export_json(test_id: str):
+        """Download test results as JSON file."""
+        if not tests:
+            return PlainTextResponse("No test runner")
+        data = tests.get_test(test_id)
+        if not data:
+            return PlainTextResponse("Test not found", status_code=404)
+        return PlainTextResponse(
+            json.dumps(data, indent=2, default=str),
+            media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename=test_{test_id}.json"},
+        )
+
     # ── Preflight, Impairment, Traffic Gen ──
 
     pf = preflight_checker

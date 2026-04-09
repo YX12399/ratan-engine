@@ -101,6 +101,7 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 <div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--g500)">
 <span id="hdr-mode">--</span>
 <span class="status-dot off" id="hdr-dot"></span>
+<span id="hdr-conn" style="font-size:11px;color:var(--g400)">connecting...</span>
 </div>
 </header>
 <main>
@@ -359,18 +360,26 @@ window.copyCmd=function(){
 };
 
 // WebSocket
+function setConnStatus(status){
+  var el=$("hdr-conn");
+  if(status==="live"){el.textContent="LIVE";el.style.color="var(--green)"}
+  else if(status==="polling"){el.textContent="polling";el.style.color="var(--yellow)"}
+  else{el.textContent="offline";el.style.color="var(--red)"}
+}
 function connectWs(){
   if(ws&&ws.readyState<2) return;
+  setConnStatus("connecting");
   try{
     ws=new WebSocket((WS_BASE||("ws://"+location.host))+"/ws");
+    ws.onopen=function(){setConnStatus("live")};
     ws.onmessage=function(e){try{S=JSON.parse(e.data);render(S)}catch(er){}};
-    ws.onclose=function(){ws=null;if(!pollTimer) pollTimer=setInterval(poll,2000)};
+    ws.onclose=function(){ws=null;setConnStatus("polling");if(!pollTimer) pollTimer=setInterval(poll,2000)};
     ws.onerror=function(){ws.close()};
     if(pollTimer){clearInterval(pollTimer);pollTimer=null}
-  }catch(e){if(!pollTimer) pollTimer=setInterval(poll,2000)}
+  }catch(e){setConnStatus("polling");if(!pollTimer) pollTimer=setInterval(poll,2000)}
 }
 function poll(){
-  fetch(API_BASE+"/api/state").then(function(r){return r.json()}).then(function(d){S=d;render(d)}).catch(function(){});
+  fetch(API_BASE+"/api/state").then(function(r){return r.json()}).then(function(d){S=d;render(d);setConnStatus("polling")}).catch(function(){setConnStatus("offline")});
   connectWs();
 }
 connectWs();
@@ -640,8 +649,13 @@ window.applyChange=function(mi,ci){
   var endpoint=c.endpoint||c.url;
   var body=c.body||c.params||{};
   if(endpoint){
-    apiPost(endpoint,body).then(function(){
-      chatMsgs.push({role:"ai",text:"Applied: "+(c.description||endpoint),changes:[]});
+    var btn=event&&event.target;
+    if(btn){btn.textContent="Applying...";btn.disabled=true}
+    apiPost(endpoint,body).then(function(ok){
+      chatMsgs.push({role:"ai",text:(ok?"Applied":"Failed")+": "+(c.description||endpoint),changes:[]});
+      renderChat();
+    }).catch(function(){
+      chatMsgs.push({role:"ai",text:"Error applying: "+(c.description||endpoint),changes:[]});
       renderChat();
     });
   }
@@ -685,7 +699,9 @@ function loadTests(){
       var typ=(t.test_type||'standard')==='ab'?'<span style="color:var(--purple)">A/B</span>':'Standard';
       h+='<tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\'">'+
         '<td>'+esc(t.name)+'</td><td>'+typ+'</td><td>'+fmtTime(t.started_at)+'</td><td>'+fmtDur(t.duration_sec||0)+'</td><td>'+esc(t.status)+'</td></tr>'+
-        '<tr style="display:none"><td colspan="5">'+fmtSummary(t.summary)+'</td></tr>';
+        '<tr style="display:none"><td colspan="5">'+fmtSummary(t.summary)+
+        (t.id?'<a href="'+API_BASE+'/api/tests/'+t.id+'/json" style="font-size:11px;color:var(--blue);margin-top:4px;display:inline-block">Download JSON</a>':'')+
+        '</td></tr>';
     });
     h+='</tbody></table>';
     $("test-history").innerHTML=h;
