@@ -112,12 +112,23 @@ Examples:
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        help="Write logs to file (e.g., /var/log/hyperagg.log)",
+    )
 
     args = parser.parse_args()
+
+    handlers = [logging.StreamHandler()]
+    if args.log_file:
+        os.makedirs(os.path.dirname(args.log_file) or ".", exist_ok=True)
+        handlers.append(logging.FileHandler(args.log_file))
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        handlers=handlers,
     )
 
     config = load_config(args.config)
@@ -257,15 +268,30 @@ async def run_client(args, config: dict) -> None:
         )
         sys.exit(1)
 
+    # Startup diagnostic
+    print(f"\n{'='*50}")
+    print(f"  HyperAgg Client")
+    print(f"{'='*50}")
+    print(f"  VPS: {vps_host}:{config.get('vps', {}).get('tunnel_port', 9999)}")
+    if tun:
+        print(f"  TUN: {tun.name} ({config.get('vps', {}).get('client_ip', '10.99.0.1')})  OK")
+    else:
+        print(f"  TUN: disabled (--no-tun)")
+    crypto_ok = bool(config.get("vps", {}).get("encryption_key", "")) and not config.get("vps", {}).get("encryption_key", "").startswith("$")
+    print(f"  Encryption: {'enabled' if crypto_ok else 'DISABLED'}")
+
     for i, iface_name in enumerate(wan_ifaces):
         info = nm.discover_interface(iface_name)
         label = DEFAULT_PATH_LABELS.get(i, f"Path-{i}")
         if info:
             client.add_path(i, iface_name, local_addr=info.ip_addr)
-            logger.info(f"Path {i} ({label}): {iface_name} @ {info.ip_addr}")
+            print(f"  Path {i} ({label}): {iface_name} @ {info.ip_addr}  OK")
         else:
             client.add_path(i, iface_name)
-            logger.warning(f"Path {i} ({label}): {iface_name} (no IP yet)")
+            print(f"  Path {i} ({label}): {iface_name}  NO IP")
+
+    print(f"  Connecting...")
+    print(f"{'='*50}\n")
 
     # Set up routing to avoid tunnel loops
     if tun and tun.is_open:

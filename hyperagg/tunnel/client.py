@@ -108,6 +108,7 @@ class TunnelClient:
 
         # State
         self._running = False
+        self._connected_paths: set[int] = set()  # Paths that got handshake ACK
         self._keepalive_interval_ms = tunnel_cfg.get("keepalive_interval_ms", 1000)
         self._probe_interval_ms = config.get("scheduler", {}).get("probe_interval_ms", 100)
         self._tier_reset_time = time.monotonic()
@@ -156,15 +157,23 @@ class TunnelClient:
         logger.info(f"Path {path_id} ({interface}) registered")
 
     async def start(self) -> None:
-        """Start all tunnel loops."""
+        """Start all tunnel loops — handshake with ACK before data flow."""
         self._running = True
         set_connection_start()
 
         # Module 7: create or resume session
         self._session_mgr.create_session()
 
-        # Send handshake
-        await self._send_handshake()
+        # Handshake with retry — wait for server ACK before starting data flow
+        connected = await self._handshake_with_retry()
+        if not connected:
+            logger.error(
+                f"FAILED: No response from VPS at {self._server_addr}:{self._server_port}\n"
+                f"  Check: 1) VPS is running  2) UDP port {self._server_port} is open  "
+                f"3) Firewall allows traffic"
+            )
+            # Continue anyway — keepalives will keep trying
+            logger.info("Starting in degraded mode — will retry via keepalives")
 
         tasks = [
             self._keepalive_loop(),
@@ -172,7 +181,6 @@ class TunnelClient:
             self._reorder_timeout_loop(),
         ]
 
-        # TX loop only if TUN is available
         if self.tun and self.tun.is_open:
             tasks.append(self._tx_loop())
 
@@ -180,6 +188,53 @@ class TunnelClient:
         logger.info("Tunnel client started")
 
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _handshake_with_retry(self, max_retries: int = 3,
+                                     timeout_sec: float = 3.0) -> bool:
+        """Send handshake and wait for ACK with retry."""
+        for attempt in range(max_retries):
+            await self._send_handshake()
+            logger.info(f"Handshake sent (attempt {attempt + 1}/{max_retries}), "
+                        f"waiting {timeout_sec}s for ACK...")
+
+            # Wait for ACK on any socket
+            ack_received = await self._wait_for_ack(timeout_sec)
+            if ack_received:
+                return True
+
+            if attempt < max_retries - 1:
+                backoff = (attempt + 1) * 2
+                logger.warning(f"No ACK received, retrying in {backoff}s...")
+                await asyncio.sleep(backoff)
+
+        return False
+
+    async def _wait_for_ack(self, timeout_sec: float) -> bool:
+        """Wait for handshake ACK from server on any path."""
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            for path_id, sock in self._sockets.items():
+                try:
+                    data, addr = sock.recvfrom(2048)
+                    pkt = HyperAggPacket.deserialize(data)
+                    if pkt.is_control:
+                        try:
+                            msg = json.loads(pkt.payload.decode())
+                            if msg.get("type") == "handshake_ack":
+                                logger.info(
+                                    f"Handshake ACK received on path {path_id} "
+                                    f"from {addr} (server_ip={msg.get('server_ip')})"
+                                )
+                                self._connected_paths.add(path_id)
+                                return True
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            pass
+                except BlockingIOError:
+                    pass  # No data yet, try next socket
+                except OSError:
+                    pass
+            await asyncio.sleep(0.1)
+        return False
 
     async def stop(self) -> None:
         self._running = False
@@ -387,8 +442,15 @@ class TunnelClient:
             self._handle_keepalive_response(path_id, pkt)
             return
 
-        # Handle control
+        # Handle control (including late handshake ACKs)
         if pkt.is_control:
+            try:
+                msg = json.loads(pkt.payload.decode())
+                if msg.get("type") == "handshake_ack":
+                    self._connected_paths.add(path_id)
+                    logger.info(f"Handshake ACK on path {path_id} (late)")
+            except Exception:
+                pass
             return
 
         # Module 2: record bandwidth from received data

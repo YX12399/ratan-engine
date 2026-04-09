@@ -261,17 +261,34 @@ class TunnelServer:
         session.path_addrs[pkt.path_id] = addr
 
     def _handle_control(self, pkt: HyperAggPacket, addr: tuple) -> None:
-        """Handle handshake/control messages."""
+        """Handle handshake/control messages — SEND ACK BACK."""
         try:
             msg = json.loads(pkt.payload.decode())
             if msg.get("type") == "handshake":
                 client_id = f"client-{addr[0]}"
                 session = self._get_or_create_session(addr, pkt.path_id)
                 session.path_addrs[pkt.path_id] = addr
+                session.packets_received += 1
                 logger.info(
                     f"Handshake from {client_id} on path {pkt.path_id}: "
                     f"fec={msg.get('fec_mode')}"
                 )
+
+                # SEND HANDSHAKE_ACK back on the SAME socket (firewall-safe)
+                ack_payload = json.dumps({
+                    "type": "handshake_ack",
+                    "session_id": session.client_id,
+                    "server_ip": self._config.get("vps", {}).get("server_ip", "10.99.0.2"),
+                    "fec_mode": self._fec.current_mode,
+                    "path_id": pkt.path_id,
+                }).encode()
+                ack_pkt = HyperAggPacket.create_control(ack_payload, pkt.path_id, 0)
+                try:
+                    self._sock.sendto(ack_pkt.serialize(), addr)
+                    logger.info(f"Handshake ACK sent to {addr} on path {pkt.path_id}")
+                except OSError as e:
+                    logger.error(f"Failed to send handshake ACK: {e}")
+
         except Exception as e:
             logger.debug(f"Control parse error: {e}")
 
