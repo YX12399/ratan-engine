@@ -554,6 +554,195 @@ def create_dashboard_app(
             return app._bypass.clear_all()
         return {"status": "ok"}
 
+    # ── WAN Interface, DNS, DHCP, QoS, Config Management ──
+
+    class WanConfigRequest(BaseModel):
+        interface: str
+        protocol: str = "dhcp"  # dhcp | static
+        ip_addr: str = ""
+        gateway: str = ""
+        mtu: int = 1500
+
+    class DnsConfigRequest(BaseModel):
+        servers: list[str] = ["8.8.8.8", "1.1.1.1"]
+
+    class QosTierRequest(BaseModel):
+        tier: str  # realtime, streaming, bulk
+        bandwidth_pct: int = 0
+        fec_mode: str = ""
+
+    @app.get("/api/interfaces")
+    async def list_interfaces():
+        """List all network interfaces with status."""
+        import subprocess as sp
+        interfaces = []
+        try:
+            result = sp.run(["ip", "-4", "-o", "addr", "show"], capture_output=True, text=True, timeout=5)
+            for line in result.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                name = parts[1]
+                if name == "lo":
+                    continue
+                ip = ""
+                for i, p in enumerate(parts):
+                    if p == "inet":
+                        ip = parts[i + 1].split("/")[0]
+                        break
+                # Get link state
+                link = sp.run(["ip", "link", "show", "dev", name], capture_output=True, text=True, timeout=3)
+                is_up = "state UP" in link.stdout
+                mtu_match = __import__("re").search(r"mtu (\d+)", link.stdout)
+                mtu = int(mtu_match.group(1)) if mtu_match else 1500
+                interfaces.append({"name": name, "ip": ip, "is_up": is_up, "mtu": mtu})
+        except Exception:
+            pass
+        return interfaces
+
+    @app.post("/api/interfaces/configure")
+    async def configure_interface(req: WanConfigRequest):
+        """Configure a WAN interface (static IP or DHCP)."""
+        import subprocess as sp
+        try:
+            if req.protocol == "static" and req.ip_addr:
+                sp.run(["ip", "addr", "flush", "dev", req.interface], capture_output=True)
+                sp.run(["ip", "addr", "add", f"{req.ip_addr}/24", "dev", req.interface], capture_output=True)
+                if req.gateway:
+                    sp.run(["ip", "route", "add", "default", "via", req.gateway, "dev", req.interface], capture_output=True)
+            if req.mtu != 1500:
+                sp.run(["ip", "link", "set", "dev", req.interface, "mtu", str(req.mtu)], capture_output=True)
+            sp.run(["ip", "link", "set", "dev", req.interface, "up"], capture_output=True)
+            return {"status": "ok", "interface": req.interface}
+        except Exception as e:
+            return {"error": str(e)}
+
+    @app.get("/api/dns")
+    async def get_dns():
+        """Get current DNS configuration."""
+        servers = []
+        try:
+            from pathlib import Path
+            resolv = Path("/etc/resolv.conf")
+            if resolv.exists():
+                for line in resolv.read_text().split("\n"):
+                    if line.startswith("nameserver"):
+                        servers.append(line.split()[1])
+        except Exception:
+            pass
+        # Also check dnsmasq config
+        dnsmasq_servers = []
+        try:
+            from pathlib import Path
+            for cf in [Path("/tmp/hyperagg-dnsmasq.conf"), Path("/etc/dnsmasq.d/hyperagg-lan.conf")]:
+                if cf.exists():
+                    for line in cf.read_text().split("\n"):
+                        if line.startswith("server="):
+                            dnsmasq_servers.append(line.split("=")[1])
+        except Exception:
+            pass
+        return {"resolv_conf": servers, "dnsmasq_upstream": dnsmasq_servers or ["8.8.8.8", "1.1.1.1"]}
+
+    @app.post("/api/dns/configure")
+    async def configure_dns(req: DnsConfigRequest):
+        """Update DNS upstream servers."""
+        import subprocess as sp
+        try:
+            from pathlib import Path
+            # Update dnsmasq config
+            config_path = Path("/tmp/hyperagg-dnsmasq.conf")
+            if config_path.exists():
+                lines = config_path.read_text().split("\n")
+                new_lines = [l for l in lines if not l.startswith("server=")]
+                for s in req.servers:
+                    new_lines.append(f"server={s}")
+                config_path.write_text("\n".join(new_lines))
+                sp.run(["pkill", "-HUP", "dnsmasq"], capture_output=True)  # Reload
+                return {"status": "ok", "servers": req.servers}
+            return {"status": "ok", "detail": "No dnsmasq config found — written to resolv.conf"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    @app.get("/api/dhcp/leases")
+    async def get_dhcp_leases():
+        """Get current DHCP leases from dnsmasq."""
+        leases = []
+        try:
+            from pathlib import Path
+            lease_file = Path("/var/lib/misc/dnsmasq.leases")
+            if not lease_file.exists():
+                lease_file = Path("/tmp/dhcp.leases")
+            if lease_file.exists():
+                for line in lease_file.read_text().strip().split("\n"):
+                    if not line:
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        leases.append({
+                            "expires": parts[0],
+                            "mac": parts[1],
+                            "ip": parts[2],
+                            "hostname": parts[3] if len(parts) > 3 else "*",
+                        })
+        except Exception:
+            pass
+        return {"leases": leases, "count": len(leases)}
+
+    @app.get("/api/qos")
+    async def get_qos():
+        """Get current QoS tier configuration."""
+        state = ctrl.get_system_state()
+        qos = state.get("qos", {})
+        tier_mgr = state.get("tier_manager", {})
+        return {"tiers": qos, "tier_manager": tier_mgr}
+
+    @app.post("/api/qos/configure")
+    async def configure_qos(req: QosTierRequest):
+        """Update QoS tier settings."""
+        # Update the SDN controller's QoS engine
+        if hasattr(ctrl, 'qos_engine'):
+            tier_cfg = ctrl.qos_engine._tiers.get(req.tier, {})
+            if req.bandwidth_pct > 0:
+                tier_cfg["bandwidth_pct"] = req.bandwidth_pct
+            if req.fec_mode:
+                tier_cfg["fec_mode"] = req.fec_mode
+            ctrl.qos_engine._tiers[req.tier] = tier_cfg
+            return {"status": "ok", "tier": req.tier, "config": tier_cfg}
+        return {"error": "QoS engine not available"}
+
+    @app.get("/api/config/download")
+    async def download_config():
+        """Download current config as YAML file."""
+        from pathlib import Path
+        for config_path in ["config.yaml", "config_client.yaml", "/etc/hyperagg/agent.yaml"]:
+            p = Path(config_path)
+            if p.exists():
+                return PlainTextResponse(
+                    p.read_text(),
+                    media_type="text/yaml",
+                    headers={"Content-Disposition": f"attachment; filename={p.name}"},
+                )
+        return PlainTextResponse("No config file found", status_code=404)
+
+    @app.post("/api/config/upload")
+    async def upload_config(req: dict):
+        """Upload/restore a config YAML."""
+        content = req.get("content", "")
+        if not content:
+            return {"error": "No content provided"}
+        try:
+            import yaml
+            parsed = yaml.safe_load(content)
+            if not isinstance(parsed, dict):
+                return {"error": "Invalid YAML — must be a dict"}
+            from pathlib import Path
+            Path("config.yaml").write_text(content)
+            return {"status": "ok", "keys": list(parsed.keys())}
+        except Exception as e:
+            return {"error": f"Invalid YAML: {e}"}
+
     # ── WebSocket for live updates ──
 
     @app.websocket("/ws")

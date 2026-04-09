@@ -129,6 +129,15 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 <div id="preflight-results" style="margin-top:8px"></div>
 </div>
 </div>
+<div class="card"><h3>Setup Wizard</h3><div id="wizard">
+<div id="wiz-step" style="font-size:13px;margin-bottom:8px"><b>Step 1:</b> Enter VPS address</div>
+<div id="wiz-1"><label>VPS IP</label><input type="text" id="wiz-vps" placeholder="89.167.91.132" style="width:200px"> <label>Encryption Key</label><input type="text" id="wiz-key" placeholder="from VPS dashboard" style="width:300px"> <button class="primary" onclick="wizNext(2)">Next &rarr;</button></div>
+<div id="wiz-2" style="display:none"><label>WAN Interfaces (comma separated)</label><input type="text" id="wiz-wan" placeholder="eth1,usb0" style="width:200px"> <label>LAN Interface</label><input type="text" id="wiz-lan" placeholder="eth0" style="width:120px"> <button class="secondary" onclick="wizNext(1)">&larr; Back</button> <button class="primary" onclick="wizNext(3)">Next &rarr;</button></div>
+<div id="wiz-3" style="display:none"><p style="font-size:13px;margin-bottom:8px">Ready to connect. This will:</p>
+<ul style="font-size:12px;color:var(--g500);margin:0 0 8px 16px"><li>Configure encryption with the provided key</li><li>Bond traffic across selected WAN interfaces</li><li>Start the HyperAgg tunnel to VPS</li></ul>
+<button class="secondary" onclick="wizNext(2)">&larr; Back</button> <button class="primary" onclick="wizFinish()">Start Bonding</button></div>
+</div></div>
+<div class="card"><h3>Connected Devices (DHCP)</h3><div id="dhcp-leases"><p class="waiting">No DHCP data</p></div></div>
 <div class="card">
 <h3>Network Diagnostics</h3>
 <div class="form-row">
@@ -307,6 +316,20 @@ select:focus,input[type="text"]:focus{outline:none;border-color:var(--blue);box-
 </div>
 </details>
 </div>
+<div class="card"><details class="collapsible"><summary>WAN Interfaces</summary><div class="inner">
+<div id="wan-list"><p class="waiting">Loading...</p></div>
+<div class="form-row" style="margin-top:8px"><input type="text" id="wan-iface" placeholder="Interface name" style="width:120px"> <select id="wan-proto"><option value="dhcp">DHCP</option><option value="static">Static</option></select> <input type="text" id="wan-ip" placeholder="IP (static)" style="width:130px"> <input type="text" id="wan-gw" placeholder="Gateway" style="width:130px"> <button class="secondary" onclick="configureWan()">Apply</button></div>
+</div></details></div>
+<div class="card"><details class="collapsible"><summary>DNS Servers</summary><div class="inner">
+<div id="dns-current" style="font-size:12px;margin-bottom:8px"></div>
+<div class="form-row"><input type="text" id="dns-servers" placeholder="8.8.8.8, 1.1.1.1" style="width:250px"> <button class="secondary" onclick="saveDns()">Save</button></div>
+</div></details></div>
+<div class="card"><details class="collapsible"><summary>QoS Traffic Tiers</summary><div class="inner"><div id="qos-tiers"></div></div></details></div>
+<div class="card"><details class="collapsible"><summary>Config Backup / Restore</summary><div class="inner">
+<button class="secondary" onclick="location.href=API_BASE+'/api/config/download'">Download Config</button>
+<div style="margin-top:8px"><textarea id="config-upload" rows="4" style="width:100%;font-family:monospace;font-size:11px" placeholder="Paste YAML config here to restore..."></textarea>
+<button class="secondary" onclick="uploadConfig()">Upload &amp; Restore</button> <span id="config-upload-ok" style="font-size:12px;margin-left:8px"></span></div>
+</div></details></div>
 </div>
 <!-- ANALYZE -->
 <div class="page" id="page-analyze">
@@ -884,6 +907,49 @@ window.loadRoutes=function(){
   $("fw-output").textContent="Loading...";
   fetch(API_BASE+"/api/system/routes").then(function(r){return r.json()}).then(function(d){$("fw-output").textContent=d.output||d.routes||JSON.stringify(d,null,2)}).catch(function(e){$("fw-output").textContent="Error: "+e});
 };
+
+// Setup Wizard
+window.wizNext=function(step){for(var i=1;i<=3;i++)$('wiz-'+i).style.display=i===step?'':'none';
+  $('wiz-step').innerHTML='<b>Step '+step+':</b> '+['Enter VPS address','Configure interfaces','Review & connect'][step-1]};
+window.wizFinish=function(){var vps=$('wiz-vps').value,key=$('wiz-key').value,wan=$('wiz-wan').value.split(',').map(function(s){return s.trim()}).filter(Boolean),lan=$('wiz-lan').value.trim();
+  if(vps){API_BASE='http://'+vps+':8080';WS_BASE='ws://'+vps+':8080';localStorage.setItem('hyperagg_vps_url',API_BASE);
+    apiPost('/api/agent/configure',{vps_host:vps,encryption_key:key,interfaces:wan,lan_interface:lan}).then(function(){
+      apiPost('/api/agent/start',{}).then(function(){$('wiz-step').innerHTML='<span style="color:var(--green)">\u2713 Bonding started!</span>'})
+    }).catch(function(e){$('wiz-step').innerHTML='<span style="color:var(--red)">Error: '+e+'</span>'})}};
+// DHCP Leases
+function loadDhcp(){fetch(API_BASE+'/api/dhcp/leases').then(function(r){return r.json()}).then(function(d){
+    var l=d.leases||d||[];if(!l.length){$('dhcp-leases').innerHTML='<p class="waiting">No DHCP leases</p>';return}
+    var h='<table><thead><tr><th>Hostname</th><th>IP</th><th>MAC</th></tr></thead><tbody>';
+    l.forEach(function(e){h+='<tr><td>'+esc(e.hostname||'--')+'</td><td>'+esc(e.ip||'--')+'</td><td>'+esc(e.mac||'--')+'</td></tr>'});
+    $('dhcp-leases').innerHTML=h+'</tbody></table>'}).catch(function(){$('dhcp-leases').innerHTML='<p class="waiting">Could not load DHCP data</p>'})}
+// WAN Interfaces
+function loadWan(){fetch(API_BASE+'/api/interfaces').then(function(r){return r.json()}).then(function(d){
+    var f=d.interfaces||d||[];if(!f.length){$('wan-list').innerHTML='<p class="waiting">No interfaces</p>';return}
+    var h='<table><thead><tr><th>Name</th><th>Type</th><th>IP</th><th>Status</th></tr></thead><tbody>';
+    f.forEach(function(i){h+='<tr><td>'+esc(i.name)+'</td><td>'+esc(i.type||i.proto||'--')+'</td><td>'+esc(i.ip||'--')+'</td><td>'+esc(i.status||'--')+'</td></tr>'});
+    $('wan-list').innerHTML=h+'</tbody></table>'}).catch(function(){$('wan-list').innerHTML='<p class="waiting">Could not load interfaces</p>'})}
+window.configureWan=function(){var iface=$('wan-iface').value.trim(),proto=$('wan-proto').value,ip=$('wan-ip').value.trim(),gw=$('wan-gw').value.trim();
+  if(!iface)return;apiPost('/api/interfaces/configure',{interface:iface,proto:proto,ip:ip,gateway:gw}).then(function(ok){if(ok)loadWan()}).catch(function(){})};
+// DNS
+function loadDns(){fetch(API_BASE+'/api/dns').then(function(r){return r.json()}).then(function(d){
+    var s=d.servers||d||[];$('dns-current').textContent=s.length?'Current: '+s.join(', '):'No DNS servers configured'
+  }).catch(function(){$('dns-current').textContent='Could not load DNS config'})}
+window.saveDns=function(){var s=$('dns-servers').value.split(',').map(function(s){return s.trim()}).filter(Boolean);
+  apiPost('/api/dns/configure',{servers:s}).then(function(ok){if(ok)loadDns()}).catch(function(){})};
+// QoS
+function loadQos(){fetch(API_BASE+'/api/qos').then(function(r){return r.json()}).then(function(d){
+    var t=d.tiers||d||[];if(!t.length){$('qos-tiers').innerHTML='<p class="waiting">No QoS tiers</p>';return}
+    var h='';t.forEach(function(t,i){h+='<div class="form-row" style="margin-bottom:6px"><span style="min-width:90px;font-weight:600">'+esc(t.name||'Tier '+i)+'</span><label style="min-width:auto">BW%</label><input type="number" id="qos-bw-'+i+'" value="'+(t.bandwidth_pct||0)+'" style="width:60px"><label style="min-width:auto">FEC</label><select id="qos-fec-'+i+'"><option value="auto"'+(t.fec_mode==='auto'?' selected':'')+'>Auto</option><option value="xor"'+(t.fec_mode==='xor'?' selected':'')+'>XOR</option><option value="reed_solomon"'+(t.fec_mode==='reed_solomon'?' selected':'')+'>RS</option><option value="none"'+(t.fec_mode==='none'?' selected':'')+'>None</option></select></div>'});
+    h+='<button class="secondary" onclick="saveQos('+t.length+')" style="margin-top:4px">Save QoS</button>';$('qos-tiers').innerHTML=h;
+  }).catch(function(){$('qos-tiers').innerHTML='<p class="waiting">Could not load QoS config</p>'})}
+window.saveQos=function(n){var t=[];for(var i=0;i<n;i++)t.push({index:i,bandwidth_pct:parseInt(document.getElementById('qos-bw-'+i).value)||0,fec_mode:document.getElementById('qos-fec-'+i).value});
+  apiPost('/api/qos/configure',{tiers:t}).then(function(ok){if(ok)loadQos()}).catch(function(){})};
+// Config Backup/Restore
+window.uploadConfig=function(){var c=$('config-upload').value;if(!c.trim()){$('config-upload-ok').textContent='Empty config';return}
+  apiPost('/api/config/upload',{content:c}).then(function(ok){$('config-upload-ok').textContent=ok?'Restored!':'Failed';
+    $('config-upload-ok').style.color=ok?'var(--green)':'var(--red)';setTimeout(function(){$('config-upload-ok').textContent=''},3000)
+  }).catch(function(){$('config-upload-ok').textContent='Error';$('config-upload-ok').style.color='var(--red)'})};
+function loadNewSections(){loadDhcp();loadWan();loadDns();loadQos()}loadNewSections();setInterval(loadDhcp,15000);
 
 // Helpers
 function pathLabel(id){return pathLabels[id]||("Path "+id)}
