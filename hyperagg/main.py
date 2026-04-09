@@ -174,12 +174,17 @@ async def run_server(args, config: dict) -> None:
         server.tun = tun
         logger.info(f"TUN hagg-srv0 at {server_ip}")
 
-    # AI + Testing
+    # AI + Testing + Device Registry
     ai_handler = ChatHandler(sdn)
     test_runner = TestRunner(sdn)
+    from hyperagg.dashboard.agent_ws import DeviceRegistry
+    device_registry = DeviceRegistry()
 
-    # Dashboard
-    app = create_dashboard_app(sdn, pkt_log, ai_handler, test_runner)
+    # Dashboard (with device management)
+    app = create_dashboard_app(
+        sdn, pkt_log, ai_handler, test_runner,
+        device_registry=device_registry,
+    )
 
     # Graceful shutdown
     loop = asyncio.get_event_loop()
@@ -189,6 +194,7 @@ async def run_server(args, config: dict) -> None:
         )
 
     logger.info(f"Dashboard at http://0.0.0.0:{args.api_port}")
+    logger.info("Edge agents can connect to ws://0.0.0.0:{args.api_port}/ws/agent")
 
     try:
         # Run server + SDN controller + dashboard concurrently
@@ -439,13 +445,16 @@ async def run_demo(args, config: dict) -> None:
 
     from hyperagg.testing.preflight import PreflightChecker
     from hyperagg.testing.traffic_gen import TrafficGenerator
+    from hyperagg.dashboard.agent_ws import DeviceRegistry
     preflight = PreflightChecker(config)
     traffic_gen = TrafficGenerator()
+    device_registry = DeviceRegistry()
 
     app = create_dashboard_app(
         sdn, pkt_log, ai_handler, test_runner,
         preflight_checker=preflight,
         traffic_generator=traffic_gen,
+        device_registry=device_registry,
     )
 
     logger.info(f"Dashboard at http://localhost:{args.api_port}")

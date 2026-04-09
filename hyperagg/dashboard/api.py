@@ -88,6 +88,7 @@ def create_dashboard_app(
     preflight_checker=None,
     impairment_controller=None,
     traffic_generator=None,
+    device_registry=None,
 ) -> FastAPI:
     """Create the FastAPI app with all dashboard routes."""
 
@@ -329,6 +330,66 @@ def create_dashboard_app(
             return {"running": False}
         return tg.get_status()
 
+    # ── Device Registry (Edge Agent Management) ──
+
+    dev_reg = device_registry
+
+    class DeviceCommand(BaseModel):
+        action: str  # start, stop, restart, configure
+        config: dict = {}
+
+    class ProvisionRequest(BaseModel):
+        device_name: str = ""
+
+    @app.get("/api/devices")
+    async def list_devices():
+        if not dev_reg:
+            return []
+        return dev_reg.list_devices()
+
+    @app.get("/api/devices/{device_id}")
+    async def get_device(device_id: str):
+        if not dev_reg:
+            return {"error": "Device registry not initialized"}
+        dev = dev_reg.get_device(device_id)
+        if not dev:
+            return {"error": f"Device {device_id} not found"}
+        return {
+            "device_id": dev.device_id,
+            "connected": dev.connected,
+            "status": dev.status,
+            "registered_at": dev.registered_at,
+        }
+
+    @app.post("/api/devices/{device_id}/command")
+    async def send_device_command(device_id: str, cmd: DeviceCommand):
+        if not dev_reg:
+            return {"error": "Device registry not initialized"}
+        return await dev_reg.send_command(device_id, cmd.action, cmd.config)
+
+    @app.post("/api/devices/provision")
+    async def provision_device(req: ProvisionRequest):
+        if not dev_reg:
+            return {"error": "Device registry not initialized"}
+        bundle = dev_reg.provision_device(req.device_name)
+        # Add VPS host info
+        state = ctrl.get_system_state()
+        bundle["vps_host"] = state.get("vps_host", "")
+        bundle["setup_command"] = (
+            f"curl -sSL http://{{VPS_HOST}}:8080/api/devices/provision-script "
+            f"| sudo bash -s -- --device-id {bundle['device_id']} "
+            f"--key {bundle['encryption_key']}"
+        )
+        return bundle
+
+    @app.websocket("/ws/agent")
+    async def agent_websocket(ws: WebSocket):
+        if dev_reg:
+            await dev_reg.handle_agent_ws(ws)
+        else:
+            await ws.accept()
+            await ws.close(code=4000, reason="Device registry not available")
+
     # ── WebSocket for live updates ──
 
     @app.websocket("/ws")
@@ -345,6 +406,8 @@ def create_dashboard_app(
                 if tests:
                     state["active_test"] = tests.get_active()
                 state["ai_enabled"] = ai.is_enabled if ai else False
+                if dev_reg:
+                    state["devices"] = dev_reg.list_devices()
                 await ws.send_json(state)
                 await asyncio.sleep(1.0)
         except WebSocketDisconnect:
