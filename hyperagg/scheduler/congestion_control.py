@@ -40,6 +40,14 @@ class AIMDController:
         self._loss_events = 0
         self._increase_events = 0
 
+        # Congestion window tracking (proper cwnd estimation)
+        self._cwnd_bytes = 65536  # Initial window: 64KB
+        self._ssthresh = estimated_bw * 0.5  # Slow-start threshold
+        self._in_slow_start = True  # Start in slow-start phase
+        self._bytes_in_flight = 0
+        self._bytes_acked = 0
+        self._rtt_min_ms = float('inf')  # Track minimum RTT for BDP
+
     @property
     def send_rate(self) -> float:
         """Current send rate in bytes/sec."""
@@ -57,11 +65,49 @@ class AIMDController:
         # Don't let send_rate exceed 1.2x estimated
         self._send_rate = min(self._send_rate, bw_bytes_per_sec * 1.2)
 
+    def record_rtt(self, rtt_ms: float) -> None:
+        """Track RTT for BDP-based congestion window sizing."""
+        if rtt_ms > 0:
+            self._rtt_min_ms = min(self._rtt_min_ms, rtt_ms)
+
+    def record_sent(self, nbytes: int) -> None:
+        """Track bytes currently in flight."""
+        self._bytes_in_flight += nbytes
+
+    def record_ack(self, nbytes: int) -> None:
+        """Track acknowledged bytes and grow cwnd."""
+        self._bytes_in_flight = max(0, self._bytes_in_flight - nbytes)
+        self._bytes_acked += nbytes
+
+        if self._in_slow_start:
+            # Slow start: double cwnd per RTT (exponential growth)
+            self._cwnd_bytes += nbytes
+            if self._cwnd_bytes >= self._ssthresh:
+                self._in_slow_start = False
+        else:
+            # Congestion avoidance: grow by 1 MSS per RTT (linear)
+            mss = 1400
+            self._cwnd_bytes += max(1, mss * nbytes // self._cwnd_bytes)
+
+    def can_send(self, nbytes: int) -> bool:
+        """Check if congestion window allows sending."""
+        return self._bytes_in_flight + nbytes <= self._cwnd_bytes
+
+    @property
+    def cwnd_bytes(self) -> int:
+        return self._cwnd_bytes
+
+    @property
+    def bdp_bytes(self) -> float:
+        """Bandwidth-delay product: optimal window size."""
+        if self._rtt_min_ms == float('inf') or self._estimated_bw <= 0:
+            return 65536
+        return self._estimated_bw * (self._rtt_min_ms / 1000.0)
+
     def on_success(self) -> None:
         """Called when packets are delivered without loss over a 100ms window."""
         now = time.monotonic()
         if now - self._last_increase >= self._increase_interval:
-            old = self._send_rate
             self._send_rate = min(
                 self._send_rate + self._alpha,
                 self._estimated_bw * 1.2,
@@ -70,15 +116,19 @@ class AIMDController:
             self._increase_events += 1
 
     def on_loss(self) -> None:
-        """Called when loss is detected."""
+        """Called when loss is detected — AIMD decrease + cwnd halve."""
         old = self._send_rate
         self._send_rate = max(
             self._send_rate * self._beta,
             self._min_rate,
         )
+        # Halve congestion window (standard TCP-like response)
+        self._ssthresh = max(self._cwnd_bytes // 2, 2 * 1400)
+        self._cwnd_bytes = self._ssthresh
+        self._in_slow_start = False
         self._loss_events += 1
         if old != self._send_rate:
-            logger.debug(f"AIMD decrease: {old*8/1e6:.1f} → {self._send_rate*8/1e6:.1f} Mbps")
+            logger.debug(f"AIMD decrease: {old*8/1e6:.1f} → {self._send_rate*8/1e6:.1f} Mbps, cwnd={self._cwnd_bytes}")
 
     def get_stats(self) -> dict:
         return {
@@ -89,6 +139,12 @@ class AIMDController:
             "utilization_pct": round(
                 self._send_rate / max(self._estimated_bw, 1) * 100, 1
             ),
+            "cwnd_bytes": self._cwnd_bytes,
+            "ssthresh_bytes": int(self._ssthresh),
+            "in_slow_start": self._in_slow_start,
+            "bytes_in_flight": self._bytes_in_flight,
+            "rtt_min_ms": round(self._rtt_min_ms, 1) if self._rtt_min_ms < 1e9 else None,
+            "bdp_bytes": round(self.bdp_bytes),
         }
 
 

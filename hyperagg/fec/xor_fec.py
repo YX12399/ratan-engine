@@ -141,15 +141,13 @@ class XORFecDecoder:
         self.group_size = group_size
         self.timeout_ms = timeout_ms
         self._fec = XORFec(group_size)
-        # group_id -> {fec_index: payload}
         self._groups: dict[int, dict[int, bytes]] = {}
-        # group_id -> parity payload
         self._parities: dict[int, bytes] = {}
-        # group_id -> first-seen timestamp
         self._timestamps: dict[int, float] = {}
-        # group_id -> set of original payload lengths
         self._payload_lens: dict[int, dict[int, int]] = {}
-
+        # Track delivered group IDs to prevent wrap collisions
+        self._delivered: set[int] = set()
+        self._max_active_groups = 256  # Purge if tracking too many
         self.recoveries = 0
 
     def receive_packet(
@@ -167,6 +165,10 @@ class XORFecDecoder:
             (fec_index, recovered_payload) if a lost packet was recovered, else None.
         """
         now = time.monotonic()
+
+        # Wrap protection: reject group IDs that were already delivered
+        if fec_group_id in self._delivered:
+            return None
 
         if fec_group_id not in self._timestamps:
             self._timestamps[fec_group_id] = now
@@ -200,7 +202,12 @@ class XORFecDecoder:
         recovered = self._fec.decode_recover(received, parity, missing_index)
         self.recoveries += 1
 
-        # Clean up completed group
+        # Mark group as delivered (wrap protection) and clean up
+        self._delivered.add(group_id)
+        if len(self._delivered) > self._max_active_groups:
+            # Purge oldest half to bound memory
+            sorted_ids = sorted(self._delivered)
+            self._delivered = set(sorted_ids[len(sorted_ids) // 2:])
         self._cleanup_group(group_id)
 
         return missing_index, recovered
