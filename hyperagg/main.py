@@ -78,9 +78,9 @@ Examples:
     )
     parser.add_argument(
         "--mode",
-        choices=["server", "client", "demo"],
+        choices=["server", "client", "demo", "agent"],
         required=True,
-        help="server=VPS, client=edge node, demo=simulated dashboard",
+        help="server=VPS, client=edge node, demo=simulated, agent=edge device daemon",
     )
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--api-port", type=int, default=8080, help="Dashboard/API port")
@@ -141,6 +141,8 @@ Examples:
         asyncio.run(run_client(args, config))
     elif args.mode == "demo":
         asyncio.run(run_demo(args, config))
+    elif args.mode == "agent":
+        asyncio.run(run_agent(args, config))
 
 
 # ── SERVER MODE ──────────────────────────────────────────────────────
@@ -858,6 +860,33 @@ async def _real_demo_loop(sdn, monitor, predictor, scheduler, fec, pkt_log,
         except Exception as e:
             logger.error(f"Demo loop error: {e}", exc_info=True)
             await asyncio.sleep(1.0)
+
+
+# ── AGENT MODE ────────────────────────────────────────────────────────
+
+
+async def run_agent(args, config: dict) -> None:
+    """Run as edge device agent — phones home to VPS, accepts commands."""
+    from hyperagg.agent.edge_agent import EdgeAgent
+
+    logger.info("Starting HyperAgg in AGENT mode")
+
+    agent_config = args.config
+    # If config is the default config.yaml, try agent-specific config first
+    if args.config == "config.yaml":
+        import os
+        for path in ["/etc/hyperagg/agent.yaml", "agent.yaml"]:
+            if os.path.exists(path):
+                agent_config = path
+                break
+
+    agent = EdgeAgent(config_path=agent_config)
+
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(agent.shutdown()))
+
+    await agent.run()
 
 
 # ── SHUTDOWN ─────────────────────────────────────────────────────────

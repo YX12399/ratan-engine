@@ -246,10 +246,18 @@ class TunnelServer:
                 self.tun.write_packet_sync(pld)
 
     def _handle_keepalive(self, pkt: HyperAggPacket, addr: tuple) -> None:
-        """Echo keepalive back with same timestamp."""
+        """Echo keepalive with T1 (client send) + T2 (server recv) + T3 (server send)."""
+        import struct
+        t2_us = get_timestamp_us()  # Server receive time
+
         response = HyperAggPacket.create_keepalive(pkt.path_id, pkt.seq)
-        # Copy original timestamp so client can compute RTT
+        # Header timestamp = original T1 (for basic RTT calculation)
         response.timestamp_us = pkt.timestamp_us
+        # Payload carries T2 and T3 for OWD estimation (8 bytes each as uint32)
+        t3_us = get_timestamp_us()  # Server send time
+        response.payload = struct.pack("!II", t2_us & 0xFFFFFFFF, t3_us & 0xFFFFFFFF)
+        response.payload_len = len(response.payload)
+
         wire = response.serialize()
         try:
             self._sock.sendto(wire, addr)

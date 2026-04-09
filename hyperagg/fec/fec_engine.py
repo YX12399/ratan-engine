@@ -108,7 +108,7 @@ class FecEngine:
 
     def update_mode(self, path_loss: dict[int, float]) -> None:
         """
-        Update FEC mode based on current path loss rates.
+        Update FEC mode based on current path loss rates AND burst detection.
         Called by the scheduler when path quality changes.
         """
         if self._mode_setting != "auto":
@@ -117,6 +117,20 @@ class FecEngine:
         if not path_loss:
             return
 
+        # First: check adaptive sizer (burst-loss aware)
+        adaptive_result = self._adaptive_sizer.update()
+        if adaptive_result.get("changed"):
+            adaptive_mode = adaptive_result["mode"]
+            if adaptive_mode != self._current_mode:
+                logger.info(
+                    f"Adaptive FEC: {self._current_mode} → {adaptive_mode} "
+                    f"(burst p95={self._adaptive_sizer._detector.p95_burst_length})"
+                )
+                self._current_mode = adaptive_mode
+                self._mode_changes += 1
+                return
+
+        # Fallback: loss-rate based mode selection
         avg_loss = sum(path_loss.values()) / len(path_loss)
         new_mode = self._resolve_mode("auto", avg_loss)
 

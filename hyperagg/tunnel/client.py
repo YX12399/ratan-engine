@@ -161,8 +161,21 @@ class TunnelClient:
         self._running = True
         set_connection_start()
 
-        # Module 7: create or resume session
-        self._session_mgr.create_session()
+        # Module 7: try to resume previous session, or create new
+        resume_data = self._session_mgr.get_resume_data()
+        if resume_data:
+            resumed = self._session_mgr.try_resume(
+                resume_data["session_id"], resume_data["last_global_seq"]
+            )
+            if resumed:
+                self._global_seq = resumed.global_seq
+                if resumed.path_seqs:
+                    self._path_seqs = {int(k): v for k, v in resumed.path_seqs.items()}
+                logger.info(f"Session resumed: seq={self._global_seq}")
+            else:
+                self._session_mgr.create_session()
+        else:
+            self._session_mgr.create_session()
 
         # Handshake with retry — wait for server ACK before starting data flow
         connected = await self._handshake_with_retry()
@@ -518,18 +531,36 @@ class TunnelClient:
                 self.tun.write_packet_sync(pld)
 
     def _handle_keepalive_response(self, path_id: int, pkt: HyperAggPacket) -> None:
-        """Process keepalive echo — calculate RTT."""
-        now_us = get_timestamp_us()
-        sent_us = pkt.timestamp_us
-        # Handle uint32 wrap
-        if now_us >= sent_us:
-            rtt_us = now_us - sent_us
+        """Process keepalive echo — calculate RTT + OWD from T1/T2/T3/T4."""
+        t4_us = get_timestamp_us()  # Client receive time
+        t1_us = pkt.timestamp_us     # Client send time (echoed back by server)
+
+        # RTT from T1/T4
+        if t4_us >= t1_us:
+            rtt_us = t4_us - t1_us
         else:
-            rtt_us = (0xFFFFFFFF - sent_us) + now_us
+            rtt_us = (0xFFFFFFFF - t1_us) + t4_us
         rtt_ms = rtt_us / 1000.0
 
-        if rtt_ms < 10000:  # Sanity check
+        if rtt_ms < 10000:
             self._monitor.record_rtt(path_id, rtt_ms)
+
+            # OWD: parse T2/T3 from keepalive payload (if server sent them)
+            if len(pkt.payload) >= 8:
+                import struct
+                t2_us, t3_us = struct.unpack("!II", pkt.payload[:8])
+                # Convert all to seconds for OWD estimator
+                # Note: these are all uint32 microseconds since connection start
+                # OWD estimator uses relative timestamps, so units don't matter
+                # as long as they're consistent
+                self._owd.record_timestamps(
+                    path_id,
+                    t1_us / 1e6, t2_us / 1e6, t3_us / 1e6, t4_us / 1e6,
+                )
+            else:
+                # Fallback: use RTT with asymmetry assumption
+                up_ratio = 0.33 if path_id == 0 else 0.45  # Starlink vs cellular
+                self._owd.record_rtt_with_asymmetry(path_id, rtt_ms, up_ratio)
         else:
             self._monitor.record_loss(path_id)
 
