@@ -28,7 +28,8 @@ RESULTS=$HERE/results.csv
 ARTIFACTS=$HERE/artifacts
 mkdir -p "$ARTIFACTS"
 
-CSV_HEADER='run_ts,scenario,stack,driver,protocol,duration_s,throughput_mbps,rtt_p50_ms,rtt_p95_ms,rtt_p99_ms,reorder_depth_mean,reorder_depth_peak,fec_overhead_pct,iperf_loss_pct,module_notes'
+CSV_SCHEMA_VERSION=1
+CSV_HEADER='schema_version,run_ts,scenario,stack,driver,protocol,duration_s,throughput_mbps,rtt_p50_ms,rtt_p95_ms,rtt_p99_ms,reorder_depth_mean,reorder_depth_peak,fec_overhead_pct,iperf_loss_pct,module_notes'
 
 SCENARIOS=(a b c)
 STACKS=(hyperagg mptcp single)
@@ -82,9 +83,10 @@ record_row() {
     #           rtt_p99_ms, reorder_depth_mean, reorder_depth_peak,
     #           fec_overhead_pct, iperf_loss_pct, module_notes
     local row
-    row=$(printf '%s' "$json" | jq -r --arg ts "$ts" --arg s "$scenario" \
+    row=$(printf '%s' "$json" | jq -r --arg sv "$CSV_SCHEMA_VERSION" \
+        --arg ts "$ts" --arg s "$scenario" \
         --arg k "$stack" --arg d "$driver" '
-        [$ts, $s, $k, $d,
+        [$sv, $ts, $s, $k, $d,
          (.protocol // ""),
          (.duration_s // ""),
          (.throughput_mbps // ""),

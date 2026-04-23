@@ -10,7 +10,7 @@ and the upcoming refactor (Phase C) are grounded in numbers from the wire.
 - `results.csv` — 18 rows (3 scenarios × 3 stacks × 2 drivers) of the form
   `scenario, stack, driver, throughput_mbps, rtt_p50_ms, rtt_p95_ms,
   rtt_p99_ms, reorder_depth_mean, reorder_depth_peak, fec_overhead_pct, ...`
-- `REPORT.md` — reviewer-facing write-up, including the three most surprising
+- `REPORT.md` — Customer PoC Evidence Pack / SLA Compliance Record, including the three most surprising
   findings, the honest-losses section (any metric where HyperAgg was worse
   than MPTCP or single-path, verbatim), and claim contradictions against
   the existing analysis doc.

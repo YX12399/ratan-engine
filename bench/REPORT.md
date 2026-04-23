@@ -1,8 +1,17 @@
 # Phase A — HyperAgg Real-World Benchmark Report
 
+> **Document role:** Customer PoC Evidence Pack / SLA Compliance Record.
+> Audiences: Tata Communications enterprise PoC review, JLR Fleet pilot
+> review, internal engineering. **Not** a marketing or investor document.
+>
 > **Status:** TEMPLATE. Populated by running `sudo bench/run_all.sh` on a
 > host with kernel ≥5.6, Docker, `tc`, `iperf3`, `mptcpize`. Every `TBD`
 > below gets replaced with a number from `results.csv`.
+
+> **Schema version:** `bench/results.csv` carries a `schema_version` column
+> (currently `1`). Bumping the version is the only legitimate way to break
+> the column contract; any consumer (Grafana ingest, Tata GDA pipeline)
+> reads schema_version first and adapts.
 
 ## 1. Host / kernel info
 
@@ -84,7 +93,10 @@ For each scenario:
   of **TBD ms** — populate from artifacts.
 - _TBD._
 
-## 7. Architecture risk for a security / SRE reviewer
+## 7. Architecture risk for a customer security / SRE reviewer
+
+> Tata's enterprise security team and JLR's ISO 21434 cyber team will
+> both ask this question explicitly. Answer it before they do.
 
 > One concrete risk surfaced by the measurement.
 
