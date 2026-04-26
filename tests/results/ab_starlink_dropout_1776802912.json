@@ -1,0 +1,142 @@
+{
+  "name": "Stress Test: Starlink Dropout",
+  "duration_ticks": 90,
+  "scenario": "starlink_dropout",
+  "hyperagg": {
+    "total_packets": 9000,
+    "delivered_packets": 21342,
+    "lost_packets": 556,
+    "recovered_by_fec": 55,
+    "effective_loss_pct": 6.18,
+    "avg_latency_ms": 51.4,
+    "p95_latency_ms": 78.9,
+    "max_disruption_ms": 1000,
+    "throughput_mbps": 2.6,
+    "recovery_events": [
+      {
+        "tick": 20,
+        "packets_recovered": 1,
+        "method": "xor"
+      },
+      {
+        "tick": 36,
+        "packets_recovered": 1,
+        "method": "xor"
+      },
+      {
+        "tick": 40,
+        "packets_recovered": 2,
+        "method": "xor"
+      },
+      {
+        "tick": 41,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 42,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 43,
+        "packets_recovered": 4,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 44,
+        "packets_recovered": 1,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 45,
+        "packets_recovered": 4,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 46,
+        "packets_recovered": 3,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 47,
+        "packets_recovered": 2,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 48,
+        "packets_recovered": 4,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 49,
+        "packets_recovered": 3,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 51,
+        "packets_recovered": 3,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 52,
+        "packets_recovered": 9,
+        "method": "reed_solomon"
+      },
+      {
+        "tick": 62,
+        "packets_recovered": 5,
+        "method": "reed_solomon_heavy"
+      },
+      {
+        "tick": 63,
+        "packets_recovered": 2,
+        "method": "reed_solomon_heavy"
+      },
+      {
+        "tick": 64,
+        "packets_recovered": 5,
+        "method": "reed_solomon_heavy"
+      },
+      {
+        "tick": 65,
+        "packets_recovered": 1,
+        "method": "reed_solomon_heavy"
+      },
+      {
+        "tick": 66,
+        "packets_recovered": 1,
+        "method": "reed_solomon_heavy"
+      },
+      {
+        "tick": 69,
+        "packets_recovered": 1,
+        "method": "reed_solomon_heavy"
+      },
+      {
+        "tick": 82,
+        "packets_recovered": 1,
+        "method": "reed_solomon_heavy"
+      }
+    ]
+  },
+  "mptcp": {
+    "total_packets": 9000,
+    "delivered_packets": 8180,
+    "lost_packets": 820,
+    "recovered_by_fec": 0,
+    "effective_loss_pct": 9.11,
+    "avg_latency_ms": 131.1,
+    "p95_latency_ms": 483.6,
+    "max_disruption_ms": 5000,
+    "throughput_mbps": 1.0,
+    "recovery_events": []
+  },
+  "improvement": {
+    "loss_reduction_pct": 2.93,
+    "latency_improvement_ms": 79.7,
+    "disruption_improvement_ms": 4000,
+    "throughput_gain_mbps": 1.6,
+    "fec_recoveries": 55
+  }
+}
